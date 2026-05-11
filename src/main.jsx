@@ -2,11 +2,16 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Edit3,
+  Boxes,
   ImagePlus,
   LayoutGrid,
+  Mail,
+  MapPin,
   PackagePlus,
+  Phone,
   RefreshCcw,
   Save,
+  ShoppingBag,
   Trash2,
   Upload
 } from "lucide-react";
@@ -15,7 +20,9 @@ import {
   createProduct,
   createProductDraftFromImage,
   deleteProduct,
+  listOrders,
   listProducts,
+  updateOrder,
   updateProduct
 } from "./services/api.js";
 import "./styles.css";
@@ -259,7 +266,7 @@ function writePath(object, path, value) {
   return copy;
 }
 
-function productPayload(form) {
+function productPayload(form, options = {}) {
   const payload = structuredClone(form);
   const discountPercent = 25;
   payload.description.features = splitLines(payload.description.features);
@@ -280,16 +287,17 @@ function productPayload(form) {
     .map((size) => {
       const price = toNumber(size.price);
       const compareAtPrice = price ? Math.round(Number(price) / (1 - discountPercent / 100)) : "";
+      const stock = size.stock === "" || size.stock === null || size.stock === undefined ? 25 : toNumber(size.stock);
       const safeType = String(size.type).toLowerCase().replace(/\s+/g, "-");
       const skuBase = String(payload.sku || payload.slug || payload.id || "poster").toUpperCase().replace(/[^A-Z0-9]+/g, "-");
-      const variantId = `${payload.id}-var-${safeType}`;
+      const variantId = size.variantId || `${payload.id}-var-${safeType}`;
 
       return {
         id: size.id || `${payload.id}-size-${safeType}`,
         type: size.type,
         inches: size.inches,
         price,
-        stock: 25,
+        stock,
         sku: size.sku || `${skuBase}-${safeType.toUpperCase()}`,
         variantId,
         pricing: {
@@ -322,9 +330,11 @@ function productPayload(form) {
     discountPercent: primarySize?.pricing.discountPercent ?? toNumber(payload.pricing.discountPercent),
     taxInclusive: true
   };
+  const sizeStockTotal = normalizedSizes.reduce((total, size) => total + Number(size.stock || 0), 0);
+  const inventoryStock = options.inventoryStockOverride ?? sizeStockTotal;
   payload.inventory = {
     ...payload.inventory,
-    stock: normalizedSizes.reduce((total, size) => total + Number(size.stock || 0), 0),
+    stock: inventoryStock,
     trackInventory: true,
     lowStockThreshold: 5,
     allowBackorders: false,
@@ -333,7 +343,7 @@ function productPayload(form) {
   payload.urgency = {
     ...payload.urgency,
     lowStock: false,
-    stockLeft: payload.inventory.stock
+    stockLeft: inventoryStock
   };
   payload.socialProof.currentlyViewing = toNumber(payload.socialProof.currentlyViewing);
   payload.socialProof.trendingScore = toNumber(payload.socialProof.trendingScore);
@@ -631,7 +641,7 @@ function ProductForm({
         {showImageTools && (
           <Field label="Replace Main Image">
             <label className="file-drop">
-              <ImagePlus size={22} />
+              <ImagePlus size={16} />
               <span>{images.length ? `${images.length} selected` : "Choose poster image"}</span>
               <input type="file" accept="image/*" multiple onChange={(event) => setImages([...event.target.files])} />
             </label>
@@ -640,7 +650,7 @@ function ProductForm({
         {showImageTools && (
           <div className="media-actions">
             <button type="button" className="secondary-button" disabled={!images.length || draftLoading} onClick={onGenerateDraft}>
-              <ImagePlus size={20} /> {draftLoading ? "Generating..." : "Upload Image & Autofill"}
+              <ImagePlus size={15} /> {draftLoading ? "Generating..." : "Upload Image & Autofill"}
             </button>
           </div>
         )}
@@ -661,7 +671,7 @@ function ProductForm({
                   <span className="main-image-badge">Main</span>
                 ) : (
                   <button type="button" className="icon-button danger" onClick={() => removeGalleryImage(form, setForm, imageUrl)} title="Remove image">
-                    <Trash2 size={20} />
+                    <Trash2 size={15} />
                   </button>
                 )}
               </div>
@@ -780,7 +790,7 @@ function ProductForm({
       </section>
 
       <button className="primary-button sticky-submit" disabled={loading}>
-        {mode === "edit" ? <Save size={22} /> : <Upload size={22} />}
+        {mode === "edit" ? <Save size={16} /> : <Upload size={16} />}
         {mode === "edit" ? "Save Product" : "Upload Product"}
       </button>
     </form>
@@ -804,10 +814,10 @@ function ProductCard({ product, onEdit, onDelete }) {
         </div>
         <div className="row-actions">
           <button className="secondary-button" onClick={() => onEdit(product)}>
-            <Edit3 size={18} /> Edit
+            <Edit3 size={14} /> Edit
           </button>
           <button className="secondary-button danger-button" onClick={() => onDelete(product.id)}>
-            <Trash2 size={18} /> Delete
+            <Trash2 size={14} /> Delete
           </button>
         </div>
       </div>
@@ -835,7 +845,7 @@ function ImageDraftStep({ images, setImages, imagePreview, setImagePreview, onGe
           <img src={imagePreview} alt="Selected poster preview" />
         ) : (
           <>
-            <ImagePlus size={36} />
+            <ImagePlus size={27} />
             <strong>Choose main poster image</strong>
             <span>PNG, JPG, or WEBP up to 5MB</span>
           </>
@@ -844,7 +854,7 @@ function ImageDraftStep({ images, setImages, imagePreview, setImagePreview, onGe
       </label>
 
       <button className="primary-button" disabled={!images.length || draftLoading} onClick={onGenerateDraft}>
-        <Upload size={22} />
+        <Upload size={16} />
         {draftLoading ? "Uploading & Generating..." : "Upload Image & Generate Details"}
       </button>
       {draftLoading && <div className="loading-panel">Gemini is reading the poster and preparing the product details. This can take a moment.</div>}
@@ -897,6 +907,546 @@ function SizeRows({ sizes, setSizes }) {
   );
 }
 
+function inventoryRowsFromProduct(product) {
+  if (!product) return [];
+  const sourceRows = product.sizes?.length
+    ? product.sizes
+    : (product.variants || []).map((variant) => ({
+        id: variant.id,
+        variantId: variant.id,
+        sku: variant.sku,
+        type: variant.sizeType,
+        inches: variant.size,
+        price: variant.price ?? variant.pricing?.price,
+        stock: variant.stock
+      }));
+
+  return sourceRows.map((size) => ({
+    id: size.id || "",
+    variantId: size.variantId || "",
+    sku: size.sku || "",
+    type: size.type || size.sizeType || "Small",
+    inches: size.inches || size.size || "",
+    price: size.price ?? size.pricing?.price ?? "",
+    stock: size.stock ?? ""
+  }));
+}
+
+function inventoryDraftFromProduct(product) {
+  const rows = inventoryRowsFromProduct(product);
+  const sizeStockTotal = rows.reduce((total, row) => total + Number(row.stock || 0), 0);
+  return {
+    totalStock: rows.length ? sizeStockTotal : product?.inventory?.stock ?? 0,
+    rows
+  };
+}
+
+function persistedInventoryDraftFromProduct(product) {
+  const rows = inventoryRowsFromProduct(product);
+  return {
+    totalStock: product?.inventory?.stock ?? rows.reduce((total, row) => total + Number(row.stock || 0), 0),
+    rows
+  };
+}
+
+function inventoryDraftSignature(draft) {
+  return JSON.stringify({
+    totalStock: String(draft?.totalStock ?? ""),
+    rows: (draft?.rows || []).map((row) => ({
+      id: row.id || "",
+      variantId: row.variantId || "",
+      sku: row.sku || "",
+      type: row.type || "",
+      inches: row.inches || "",
+      price: String(row.price ?? ""),
+      stock: String(row.stock ?? "")
+    }))
+  });
+}
+
+function getInventoryStats(draft) {
+  const rows = draft?.rows || [];
+  const sizeStockTotal = rows.reduce((total, row) => total + Number(row.stock || 0), 0);
+  const totalStock = Number(draft?.totalStock ?? sizeStockTotal);
+  const lowestPrice = rows
+    .map((row) => Number(row.price || 0))
+    .filter((price) => price > 0)
+    .sort((a, b) => a - b)[0] || 0;
+  const inventoryValue = rows.reduce((total, row) => total + Number(row.price || 0) * Number(row.stock || 0), 0);
+
+  return { totalStock, sizeStockTotal, lowestPrice, inventoryValue };
+}
+
+function getProductSortPrice(product) {
+  return getInventoryStats(inventoryDraftFromProduct(product)).lowestPrice || Number.MAX_SAFE_INTEGER;
+}
+
+function productImageUrl(product) {
+  return product?.media?.thumbnail || product?.media?.featuredImage || product?.media?.gallery?.[0] || "/placeholder.svg";
+}
+
+function InventoryManager({
+  products,
+  drafts,
+  expandedProductIds,
+  loading,
+  onAddRow,
+  onCollapseAll,
+  onDiscard,
+  onExpandAll,
+  onExpand,
+  onRemoveRow,
+  onSave,
+  onSaveAll,
+  onSort,
+  onUpdateRow,
+  onUpdateTotalStock,
+  sortKey
+}) {
+  const sortedProducts = [...products].sort((a, b) => {
+    if (sortKey === "createdAt") {
+      return new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0);
+    }
+    if (sortKey === "price") {
+      return getProductSortPrice(a) - getProductSortPrice(b);
+    }
+    if (sortKey === "stock") {
+      return getInventoryStats(inventoryDraftFromProduct(b)).totalStock - getInventoryStats(inventoryDraftFromProduct(a)).totalStock;
+    }
+    return String(a.name || a.id).localeCompare(String(b.name || b.id));
+  });
+
+  function getDraft(product) {
+    return drafts[product.id] || inventoryDraftFromProduct(product);
+  }
+
+  function isDirty(product) {
+    return inventoryDraftSignature(getDraft(product)) !== inventoryDraftSignature(persistedInventoryDraftFromProduct(product));
+  }
+
+  const dirtyProductIds = sortedProducts.filter(isDirty).map((product) => product.id);
+  const allExpanded = products.length > 0 && expandedProductIds.length === products.length;
+
+  if (!products.length) {
+    return (
+      <section className="panel wide-panel inventory-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Inventory</p>
+            <h3>Inventory & Prices</h3>
+          </div>
+        </div>
+        <p className="empty">No products available.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel wide-panel inventory-panel">
+      <div className="panel-heading inventory-heading">
+        <div>
+          <p className="eyebrow">Inventory</p>
+          <h3>Manage Product Stock</h3>
+        </div>
+        <div className="inventory-toolbar">
+          <label className="sort-control">
+            <span>Sort by</span>
+            <select value={sortKey} onChange={(event) => onSort(event.target.value)}>
+              <option value="name">Name</option>
+              <option value="createdAt">Created At</option>
+              <option value="price">Price</option>
+              <option value="stock">Total Stock</option>
+            </select>
+          </label>
+          <button type="button" className="secondary-button" onClick={allExpanded ? onCollapseAll : onExpandAll}>
+            {allExpanded ? "Collapse All" : "Expand All"}
+          </button>
+          <button type="button" className="primary-button inventory-save-all" disabled={!dirtyProductIds.length || loading} onClick={() => onSaveAll(dirtyProductIds)}>
+            <Save size={16} /> Save All
+          </button>
+        </div>
+      </div>
+
+      <div className="inventory-list">
+        <div className="inventory-product-row inventory-product-head">
+          <span>Product</span>
+          <span>Total Stock</span>
+          <span>Starting Price</span>
+          <span>Stock Value</span>
+          <span>Sizes</span>
+          <span></span>
+        </div>
+
+        {sortedProducts.map((product) => {
+          const draft = getDraft(product);
+          const stats = getInventoryStats(draft);
+          const dirty = isDirty(product);
+          const expanded = expandedProductIds.includes(product.id);
+
+          return (
+            <div className={`inventory-product ${dirty ? "is-dirty" : ""}`} key={product.id}>
+              <div className="inventory-product-row">
+                <div className="inventory-product-name">
+                  <img src={productImageUrl(product)} alt={product.name || "Product"} />
+                  <div>
+                    <strong>{product.name || product.id}</strong>
+                    <span>{product.sku || product.id}</span>
+                  </div>
+                </div>
+                <input
+                  className="inventory-total-input"
+                  min="0"
+                  type="number"
+                  value={draft.totalStock}
+                  onChange={(event) => onUpdateTotalStock(product.id, event.target.value)}
+                />
+                <strong>{stats.lowestPrice ? `INR ${stats.lowestPrice}` : "-"}</strong>
+                <strong>{`INR ${stats.inventoryValue.toLocaleString("en-IN")}`}</strong>
+                <button type="button" className="secondary-button" onClick={() => onExpand(product.id)}>
+                  {expanded ? "Hide Sizes" : `Sizes (${draft.rows.length})`}
+                </button>
+                <div className={`inventory-actions ${dirty ? "has-discard" : ""}`}>
+                  {dirty && (
+                    <button type="button" className="secondary-button" disabled={loading} onClick={() => onDiscard(product.id)}>
+                      Discard
+                    </button>
+                  )}
+                  <button type="button" className="primary-button" disabled={!dirty || loading} onClick={() => onSave(product.id)}>
+                    <Save size={16} /> Save
+                  </button>
+                </div>
+              </div>
+
+              {expanded && (
+                <div className="inventory-size-dropdown">
+                  <div className="section-title-row">
+                    <h4>Size Pricing</h4>
+                    <button type="button" className="secondary-button" onClick={() => onAddRow(product.id)}>Add Size</button>
+                  </div>
+                  <div className="inventory-table">
+                    <div className="inventory-row inventory-row-head">
+                      <span>Size</span>
+                      <span>Inches</span>
+                      <span>Price</span>
+                      <span>Size Stock</span>
+                      <span>SKU</span>
+                      <span></span>
+                    </div>
+                    {draft.rows.map((row, index) => (
+                      <div className="inventory-row" key={`${row.id || row.type}-${index}`}>
+                        <select value={row.type} onChange={(event) => onUpdateRow(product.id, index, "type", event.target.value)}>
+                          {sizeTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                        </select>
+                        <input value={row.inches} placeholder="12 x 9" onChange={(event) => onUpdateRow(product.id, index, "inches", event.target.value)} />
+                        <input type="number" min="0" value={row.price} placeholder="699" onChange={(event) => onUpdateRow(product.id, index, "price", event.target.value)} />
+                        <input type="number" min="0" value={row.stock} placeholder="25" onChange={(event) => onUpdateRow(product.id, index, "stock", event.target.value)} />
+                        <input value={row.sku} placeholder="Optional" onChange={(event) => onUpdateRow(product.id, index, "sku", event.target.value)} />
+                        <button type="button" className="icon-button danger" onClick={() => onRemoveRow(product.id, index)} disabled={draft.rows.length === 1} title="Remove size">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+const orderStatuses = [
+  { value: "payment_verification", label: "Pending Verification" },
+  { value: "payment_not_verified", label: "Payment Not Verified" },
+  { value: "product_packing", label: "Product Packing" },
+  { value: "sending_to_transit", label: "Sending To Transit" },
+  { value: "in_transit", label: "In Transit" },
+  { value: "completed", label: "Completed" },
+  { value: "return_requested", label: "Return Request Pending" },
+  { value: "return_processing", label: "Return Processing" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "return_in_transit", label: "Return In Transit" },
+  { value: "refunded", label: "Refunded" }
+];
+
+const orderTabs = [
+  { value: "all", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "in_transit", label: "In Transit" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled_refunded", label: "Cancelled / Refunded" }
+];
+
+const pendingOrderStatuses = [
+  "payment_verification",
+  "product_packing",
+  "sending_to_transit",
+  "return_requested",
+  "return_processing",
+  "cancel_requested",
+  "refund_requested"
+];
+const inTransitOrderStatuses = ["in_transit", "return_in_transit"];
+const cancelledRefundedStatuses = ["payment_not_verified", "cancelled", "refunded"];
+
+function isReturnOrder(order) {
+  const status = order?.status || "";
+  const values = [
+    status,
+    order?.statusLabel,
+    order?.type,
+    order?.flow,
+    order?.requestType,
+    order?.returnStatus,
+    order?.actions?.returnRequested ? "return" : "",
+    order?.actions?.refundRequested ? "refund" : ""
+  ];
+
+  return values.some((value) => /return|refund/i.test(String(value || "")));
+}
+
+function effectiveOrderStatus(order) {
+  if ((order?.status === "in_transit" || order?.status === "shipped") && isReturnOrder(order)) {
+    return "return_in_transit";
+  }
+  return order?.status || "payment_verification";
+}
+
+function orderStatusLabel(order) {
+  const status = effectiveOrderStatus(order);
+  return orderStatuses.find((item) => item.value === status)?.label || status || "Pending Verification";
+}
+
+function orderTabForStatus(statusOrOrder) {
+  const status = typeof statusOrOrder === "object" ? effectiveOrderStatus(statusOrOrder) : statusOrOrder;
+  if (pendingOrderStatuses.includes(status)) return "pending";
+  if (inTransitOrderStatuses.includes(status)) return "in_transit";
+  if (status === "completed") return "completed";
+  if (cancelledRefundedStatuses.includes(status)) return "cancelled_refunded";
+  return "pending";
+}
+
+function orderActionsForOrder(order) {
+  const status = effectiveOrderStatus(order);
+  if (["cancel_requested", "refund_requested", "return_requested"].includes(status)) {
+    return [{ status: "return_processing", label: "Process Request" }];
+  }
+  if (status === "return_processing") {
+    return [{ status: "return_in_transit", label: "Move In Transit" }];
+  }
+  if (status === "product_packing") {
+    return [{ status: "sending_to_transit", label: "Order Packed" }];
+  }
+  if (status === "sending_to_transit") {
+    return [{ status: "in_transit", label: "Move In Transit" }];
+  }
+  if (status === "in_transit") {
+    return [
+      { status: "completed", label: "Completed" },
+      { status: "cancelled", label: "Cancelled" }
+    ];
+  }
+  if (status === "completed") {
+    return [{ status: "return_requested", label: "Process Return Request" }];
+  }
+  if (status === "cancelled") {
+    return [{ status: "return_processing", label: "Process Request" }];
+  }
+  if (status === "return_in_transit") {
+    return [{ status: "refunded", label: "Process Refund" }];
+  }
+  if (["payment_not_verified", "refunded"].includes(status)) {
+    return [];
+  }
+
+  return [
+    { status: "product_packing", label: "Verify Payment" },
+    { status: "payment_not_verified", label: "Incorrect / Not Verified" }
+  ];
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  });
+}
+
+function itemImageUrl(item) {
+  if (Array.isArray(item?.image)) return item.image?.[0]?.url || item.image?.[0] || "/placeholder.svg";
+  return item?.image || item?.media?.thumbnail || item?.media?.featuredImage || "/placeholder.svg";
+}
+
+function orderTimestampUpdates(order, status) {
+  if (!["completed", "delivered"].includes(status)) return {};
+  const timestamp = new Date().toISOString();
+
+  return {
+    deliveredAt: order.deliveredAt || timestamp,
+    completedAt: order.completedAt || timestamp,
+    deliveryCompletedAt: order.deliveryCompletedAt || timestamp
+  };
+}
+
+function OrdersManager({ orders, loading, onStatusChange }) {
+  const [activeOrderTab, setActiveOrderTab] = useState("all");
+  const visibleOrders = orders.filter((order) => (
+    activeOrderTab === "all" ? true : orderTabForStatus(order) === activeOrderTab
+  ));
+  const tabCounts = orderTabs.reduce((counts, tab) => {
+    counts[tab.value] = tab.value === "all"
+      ? orders.length
+      : orders.filter((order) => orderTabForStatus(order) === tab.value).length;
+    return counts;
+  }, {});
+
+  if (!orders.length) {
+    return (
+      <section className="panel wide-panel orders-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Orders</p>
+            <h3>Placed Orders</h3>
+          </div>
+        </div>
+        <p className="empty">No orders placed yet.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel wide-panel orders-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Orders</p>
+          <h3>{visibleOrders.length} Placed Orders</h3>
+        </div>
+      </div>
+
+      <div className="order-tabs">
+        {orderTabs.map((tab) => (
+          <button
+            type="button"
+            className={activeOrderTab === tab.value ? "active" : ""}
+            key={tab.value}
+            onClick={() => setActiveOrderTab(tab.value)}
+          >
+            {tab.label}
+            <span>{tabCounts[tab.value] || 0}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="admin-orders-list">
+        {visibleOrders.map((order) => {
+          const actions = orderActionsForOrder(order);
+
+          return (
+            <article className="admin-order-card" key={order.id}>
+              <div className="admin-order-top">
+                <div>
+                  <p className="eyebrow">Order ID</p>
+                  <h4>{order.id}</h4>
+                  <span>{formatDateTime(order.createdAt)}</span>
+                </div>
+                <div className="order-workflow">
+                  <span className={`order-status-badge status-${orderTabForStatus(order)}`}>{orderStatusLabel(order)}</span>
+                  <div className="order-workflow-actions">
+                    {actions.map((action) => (
+                      <button
+                        type="button"
+                        className={["payment_not_verified", "cancelled", "refunded"].includes(action.status) ? "secondary-button danger-button" : "secondary-button"}
+                        disabled={loading}
+                        key={action.status}
+                        onClick={() => onStatusChange(order, action.status)}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+            <div className="order-summary-grid">
+              <div>
+                <span>Customer</span>
+                <strong>{order.customer?.name || order.shipping?.recipient || "Customer"}</strong>
+              </div>
+              <div>
+                <span>Total</span>
+                <strong>INR {Number(order.totals?.total || 0).toLocaleString("en-IN")}</strong>
+              </div>
+              <div>
+                <span>Items</span>
+                <strong>{order.items?.length || 0}</strong>
+              </div>
+              <div>
+                <span>Payment</span>
+                <strong>{order.payment?.transactionId || "Not shared"}</strong>
+              </div>
+            </div>
+
+            <div className="order-detail-grid">
+              <section className="order-detail-box">
+                <h5>Customer Details</h5>
+                <p><Mail size={14} /> {order.customer?.email || "-"}</p>
+                <p><Phone size={14} /> {order.customer?.phone || order.shipping?.phone || "-"}</p>
+                <p><MapPin size={14} /> {order.shipping?.destination || [order.shipping?.addressLine1, order.shipping?.addressLine2, order.shipping?.city, order.shipping?.state, order.shipping?.pincode].filter(Boolean).join(", ") || "-"}</p>
+              </section>
+
+              <section className="order-detail-box">
+                <h5>Payment Details</h5>
+                <p><strong>Method:</strong> {order.payment?.method || "-"}</p>
+                <p><strong>Payer:</strong> {order.payment?.payerName || "-"}</p>
+                <p><strong>UPI:</strong> {order.payment?.receiverUpiId || "-"}</p>
+                {order.payment?.screenshotDataUrl && <img className="payment-proof-image" src={order.payment.screenshotDataUrl} alt="Payment proof" />}
+              </section>
+
+              <section className="order-detail-box">
+                <h5>Totals</h5>
+                <p><strong>Subtotal:</strong> INR {Number(order.totals?.subtotal || 0).toLocaleString("en-IN")}</p>
+                <p><strong>GST:</strong> INR {Number(order.totals?.gst || 0).toLocaleString("en-IN")}</p>
+                <p><strong>Shipping:</strong> INR {Number(order.totals?.shipping || 0).toLocaleString("en-IN")}</p>
+                <p><strong>Total:</strong> INR {Number(order.totals?.total || 0).toLocaleString("en-IN")}</p>
+              </section>
+
+              <section className="order-detail-box">
+                <h5>Timeline</h5>
+                <p><strong>Delivered:</strong> {formatDateTime(order.deliveredAt)}</p>
+                <p><strong>Completed:</strong> {formatDateTime(order.completedAt)}</p>
+                <p><strong>Delivery Done:</strong> {formatDateTime(order.deliveryCompletedAt)}</p>
+              </section>
+            </div>
+
+            <div className="admin-order-items">
+              <div className="section-title-row">
+                <h4>Products</h4>
+                <span>{order.items?.length || 0} item{order.items?.length === 1 ? "" : "s"}</span>
+              </div>
+              {(order.items || []).map((item, index) => (
+                <div className="admin-order-item" key={`${order.id}-item-${item.id || index}`}>
+                  <img src={itemImageUrl(item)} alt={item.name || "Order item"} />
+                  <div>
+                    <strong>{item.name || item.id}</strong>
+                    <span>{item.subtitle || item.sku || item.id}</span>
+                    <span>Size: {item.size || item.sizeType || "-"} | Qty: {item.amount || 1}</span>
+                  </div>
+                  <strong>INR {Number((item.price || 0) * (item.amount || 1)).toLocaleString("en-IN")}</strong>
+                </div>
+              ))}
+            </div>
+          </article>
+          );
+        })}
+        {!visibleOrders.length && <p className="empty">No orders in this tab.</p>}
+      </div>
+    </section>
+  );
+}
+
 function AdditionalImages({ files, setFiles }) {
   function updateFile(index, fileList) {
     const next = [...files];
@@ -921,7 +1471,7 @@ function AdditionalImages({ files, setFiles }) {
       <div className="extra-image-list">
         {!files.length && (
           <button type="button" className="image-add-tile" onClick={addSlot}>
-            <ImagePlus size={28} />
+            <ImagePlus size={21} />
             <span>Add additional product image</span>
           </button>
         )}
@@ -929,12 +1479,12 @@ function AdditionalImages({ files, setFiles }) {
           <div className="extra-image-row" key={`extra-${index}`}>
             {file && <img className="extra-image-preview" src={URL.createObjectURL(file)} alt={`Additional ${index + 1}`} />}
             <label className="file-drop">
-              <ImagePlus size={22} />
+              <ImagePlus size={16} />
               <span>{file?.name || "Choose additional image"}</span>
               <input type="file" accept="image/*" onChange={(event) => updateFile(index, [...event.target.files])} />
             </label>
             <button type="button" className="icon-button danger" onClick={() => removeSlot(index)} title="Remove image">
-              <Trash2 size={20} />
+              <Trash2 size={15} />
             </button>
           </div>
         ))}
@@ -1030,7 +1580,7 @@ function GeneratedDetailsForm({ form, setForm, sizes, setSizes, additionalImages
       </section>
 
       <button className="primary-button sticky-submit">
-        <Save size={22} /> Go To Review
+        <Save size={16} /> Go To Review
       </button>
     </form>
   );
@@ -1068,7 +1618,7 @@ function ProductReview({ form, sizes, additionalImages, onBack, onUpload, loadin
       <div className="review-actions">
         <button type="button" className="secondary-button" onClick={onBack}>Back & Edit</button>
         <button type="button" className="primary-button" disabled={loading} onClick={onUpload}>
-          <Upload size={22} /> {loading ? "Uploading..." : "Upload Product"}
+          <Upload size={16} /> {loading ? "Uploading..." : "Upload Product"}
         </button>
       </div>
     </section>
@@ -1188,6 +1738,7 @@ function ReadOnlyDetails({ payload }) {
 function App() {
   const [page, setPage] = useState("upload");
   const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [form, setForm] = useState(() => cloneTemplate());
   const [images, setImages] = useState([]);
   const [imagePreview, setImagePreview] = useState("");
@@ -1196,6 +1747,9 @@ function App() {
   const [additionalImages, setAdditionalImages] = useState([]);
   const [editAdditionalImages, setEditAdditionalImages] = useState([]);
   const [editingId, setEditingId] = useState("");
+  const [inventoryDrafts, setInventoryDrafts] = useState({});
+  const [expandedInventoryIds, setExpandedInventoryIds] = useState([]);
+  const [inventorySort, setInventorySort] = useState("name");
   const [loading, setLoading] = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -1218,8 +1772,29 @@ function App() {
     }
   }
 
+  async function refreshOrders() {
+    setLoading(true);
+    setError("");
+    try {
+      setOrders(await listOrders());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshCurrentPage() {
+    if (page === "orders") {
+      await refreshOrders();
+      return;
+    }
+    await refreshProducts();
+  }
+
   useEffect(() => {
     refreshProducts();
+    refreshOrders();
   }, []);
 
   useEffect(() => {
@@ -1310,6 +1885,145 @@ function App() {
     }
   }
 
+  function updateInventoryDraft(productId, updater) {
+    const product = products.find((item) => item.id === productId);
+    if (!product) return;
+    setInventoryDrafts((current) => {
+      const draft = current[productId] || inventoryDraftFromProduct(product);
+      return {
+        ...current,
+        [productId]: updater(structuredClone(draft))
+      };
+    });
+  }
+
+  function handleInventoryTotalStock(productId, value) {
+    updateInventoryDraft(productId, (draft) => {
+      const requestedTotal = Number(value || 0);
+      if (!draft.rows.length) return { ...draft, totalStock: value };
+
+      const otherRowsTotal = draft.rows.slice(1).reduce((total, row) => total + Number(row.stock || 0), 0);
+      draft.rows[0] = {
+        ...draft.rows[0],
+        stock: Math.max(0, requestedTotal - otherRowsTotal)
+      };
+      draft.totalStock = draft.rows.reduce((total, row) => total + Number(row.stock || 0), 0);
+      return draft;
+    });
+  }
+
+  function handleInventoryRowChange(productId, rowIndex, key, value) {
+    updateInventoryDraft(productId, (draft) => {
+      draft.rows[rowIndex] = { ...draft.rows[rowIndex], [key]: value };
+      if (key === "stock") {
+        draft.totalStock = draft.rows.reduce((total, row) => total + Number(row.stock || 0), 0);
+      }
+      return draft;
+    });
+  }
+
+  function handleInventoryAddRow(productId) {
+    updateInventoryDraft(productId, (draft) => ({
+      ...draft,
+      rows: [...draft.rows, { type: "Small", inches: "", price: "", stock: "", sku: "" }]
+    }));
+    setExpandedInventoryIds((current) => (current.includes(productId) ? current : [...current, productId]));
+  }
+
+  function handleInventoryRemoveRow(productId, rowIndex) {
+    updateInventoryDraft(productId, (draft) => {
+      const rows = draft.rows.filter((_, index) => index !== rowIndex);
+      return {
+        ...draft,
+        rows,
+        totalStock: rows.reduce((total, row) => total + Number(row.stock || 0), 0)
+      };
+    });
+  }
+
+  function handleInventoryDiscard(productId) {
+    setInventoryDrafts((current) => {
+      const next = { ...current };
+      delete next[productId];
+      return next;
+    });
+  }
+
+  function toggleInventoryExpanded(productId) {
+    setExpandedInventoryIds((current) => (
+      current.includes(productId)
+        ? current.filter((id) => id !== productId)
+        : [...current, productId]
+    ));
+  }
+
+  function expandAllInventory() {
+    setExpandedInventoryIds(products.map((product) => product.id));
+  }
+
+  function collapseAllInventory() {
+    setExpandedInventoryIds([]);
+  }
+
+  async function saveInventoryProduct(productId) {
+    const product = products.find((item) => item.id === productId);
+    const draft = inventoryDrafts[productId] || (product ? inventoryDraftFromProduct(product) : null);
+    if (!product || !draft) {
+      setError("Choose a product to update inventory.");
+      return false;
+    }
+
+    const usableRows = draft.rows.filter((row) => row.type && row.inches && row.price !== "");
+    if (!usableRows.length) {
+      setError("Add at least one size with inches and price.");
+      return false;
+    }
+
+    const payload = productPayload(
+      { ...mergeProduct(product), sizes: usableRows },
+      { inventoryStockOverride: toNumber(draft.totalStock) }
+    );
+    await updateProduct(product.id, payload, []);
+    handleInventoryDiscard(product.id);
+    return true;
+  }
+
+  async function handleInventorySave(productId) {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const saved = await saveInventoryProduct(productId);
+      if (saved) {
+        await refreshProducts();
+        setNotice("Inventory and prices updated.");
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleInventorySaveAll(productIds) {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      let savedCount = 0;
+      for (const productId of productIds) {
+        const saved = await saveInventoryProduct(productId);
+        if (saved) savedCount += 1;
+      }
+      await refreshProducts();
+      setNotice(`${savedCount} product${savedCount === 1 ? "" : "s"} updated.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleDelete(productId) {
     if (!window.confirm("Delete this product?")) return;
     setLoading(true);
@@ -1330,6 +2044,28 @@ function App() {
     }
   }
 
+  async function handleOrderStatusChange(order, status) {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const statusMeta = orderStatuses.find((item) => item.value === status);
+      await updateOrder(order.id, {
+        ...order,
+        status,
+        statusLabel: statusMeta?.label || status,
+        ...orderTimestampUpdates(order, status),
+        updatedAt: new Date().toISOString()
+      });
+      setNotice("Order status updated.");
+      await refreshOrders();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function goEdit(product) {
     setEditingId(product.id);
     setPage("edit");
@@ -1338,6 +2074,8 @@ function App() {
   const title = {
     upload: "Upload Product",
     edit: "Edit Product",
+    inventory: "Inventory & Prices",
+    orders: "Orders",
     products: "All Products"
   }[page];
 
@@ -1350,13 +2088,19 @@ function App() {
         </div>
         <nav className="nav">
           <button className={page === "upload" ? "active" : ""} onClick={() => { setPage("upload"); resetUpload(); }}>
-            <PackagePlus size={24} /> Upload Product
+            <PackagePlus size={18} /> Upload Product
           </button>
           <button className={page === "edit" ? "active" : ""} onClick={() => setPage("edit")}>
-            <Edit3 size={24} /> Edit Product
+            <Edit3 size={18} /> Edit Product
+          </button>
+          <button className={page === "inventory" ? "active" : ""} onClick={() => setPage("inventory")}>
+            <Boxes size={18} /> Inventory & Prices
+          </button>
+          <button className={page === "orders" ? "active" : ""} onClick={() => setPage("orders")}>
+            <ShoppingBag size={18} /> Orders
           </button>
           <button className={page === "products" ? "active" : ""} onClick={() => setPage("products")}>
-            <LayoutGrid size={24} /> All Products
+            <LayoutGrid size={18} /> All Products
           </button>
         </nav>
         <div className="api-box">
@@ -1371,8 +2115,8 @@ function App() {
             <p className="eyebrow">Product Management</p>
             <h2>{title}</h2>
           </div>
-          <button className="icon-button" onClick={refreshProducts} disabled={loading} title="Refresh products">
-            <RefreshCcw size={22} />
+          <button className="icon-button" onClick={refreshCurrentPage} disabled={loading} title="Refresh">
+            <RefreshCcw size={16} />
           </button>
         </header>
 
@@ -1455,6 +2199,35 @@ function App() {
           </section>
         )}
 
+        {page === "inventory" && (
+          <InventoryManager
+            products={products}
+            drafts={inventoryDrafts}
+            expandedProductIds={expandedInventoryIds}
+            onSave={handleInventorySave}
+            onSaveAll={handleInventorySaveAll}
+            onDiscard={handleInventoryDiscard}
+            onUpdateTotalStock={handleInventoryTotalStock}
+            onUpdateRow={handleInventoryRowChange}
+            onAddRow={handleInventoryAddRow}
+            onRemoveRow={handleInventoryRemoveRow}
+            onExpand={toggleInventoryExpanded}
+            onExpandAll={expandAllInventory}
+            onCollapseAll={collapseAllInventory}
+            sortKey={inventorySort}
+            onSort={setInventorySort}
+            loading={loading}
+          />
+        )}
+
+        {page === "orders" && (
+          <OrdersManager
+            orders={orders}
+            loading={loading}
+            onStatusChange={handleOrderStatusChange}
+          />
+        )}
+
         {page === "products" && (
           <section className="panel wide-panel">
             <div className="panel-heading">
@@ -1477,3 +2250,7 @@ function App() {
 }
 
 createRoot(document.getElementById("root")).render(<App />);
+
+
+
+
