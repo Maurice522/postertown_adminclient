@@ -1205,12 +1205,16 @@ button:disabled {
 
 .admin-order-item {
   align-items: center;
+  background: #ffffff;
   border: 1px solid #e7edf2;
   border-radius: 8px;
+  color: inherit;
   display: grid;
   gap: 10px;
   grid-template-columns: 54px minmax(0, 1fr) auto;
   padding: 10px;
+  text-align: left;
+  width: 100%;
 }
 
 .admin-order-item img {
@@ -1230,6 +1234,11 @@ button:disabled {
 .admin-order-item strong {
   color: #17202b;
   font-size: 14px;
+}
+
+.clickable-order-item:hover {
+  border-color: #5cc8bd;
+  box-shadow: 0 8px 18px rgba(28, 36, 48, 0.07);
 }
 
 .variant-stack {
@@ -1259,6 +1268,19 @@ button:disabled {
   box-shadow: 0 8px 18px rgba(28, 36, 48, 0.06);
   display: grid;
   overflow: hidden;
+}
+
+.clickable-card {
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.clickable-card:hover,
+.clickable-card:focus-visible {
+  border-color: #5cc8bd;
+  box-shadow: 0 12px 24px rgba(28, 36, 48, 0.1);
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .product-card img {
@@ -1313,9 +1335,192 @@ button:disabled {
   padding: 14px;
 }
 
+.product-detail-page {
+  display: grid;
+  gap: 22px;
+}
+
+.detail-toolbar {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.product-detail-hero {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: minmax(280px, 460px) minmax(0, 1fr);
+}
+
+.detail-hero-image {
+  background: #eef2f6;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  color: #ffffff;
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+}
+
+.detail-hero-image img {
+  aspect-ratio: 16 / 11;
+  object-fit: cover;
+  width: 100%;
+}
+
+.detail-hero-image span {
+  align-items: center;
+  background: rgba(17, 26, 36, 0.78);
+  border-radius: 999px;
+  bottom: 12px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 6px;
+  justify-self: center;
+  padding: 7px 12px;
+  position: absolute;
+}
+
+.detail-hero-copy {
+  align-content: center;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.detail-hero-copy h3 {
+  font-size: 26px;
+}
+
+.detail-hero-copy p {
+  color: #566475;
+  font-size: 14px;
+  margin: 0;
+  max-width: 760px;
+}
+
+.detail-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.detail-gallery button {
+  background: #eef2f6;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  height: 82px;
+  overflow: hidden;
+  padding: 0;
+  width: 112px;
+}
+
+.detail-gallery button:hover {
+  border-color: #5cc8bd;
+}
+
+.detail-gallery img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.detail-section {
+  border-top: 1px solid #e3e8ee;
+  display: grid;
+  gap: 12px;
+  padding-top: 18px;
+}
+
+.detail-section h4 {
+  color: #17202b;
+  font-size: 17px;
+  margin: 0;
+}
+
+.detail-field-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.detail-field-grid.nested {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.detail-field {
+  background: #f7f9fb;
+  border: 1px solid #e3e8ee;
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.detail-field > span:first-child {
+  color: #607084;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.detail-field span,
+.detail-field strong {
+  overflow-wrap: anywhere;
+}
+
+.detail-nested-list {
+  display: grid;
+  gap: 8px;
+}
+
+.detail-nested-item {
+  display: grid;
+  min-width: 0;
+}
+
+.muted-value {
+  color: #8b98a7;
+}
+
+.image-lightbox {
+  align-items: center;
+  background: rgba(9, 14, 20, 0.86);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 28px;
+  position: fixed;
+  z-index: 50;
+}
+
+.image-lightbox img {
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  max-height: 92vh;
+  max-width: 92vw;
+  object-fit: contain;
+}
+
+.lightbox-close {
+  position: fixed;
+  right: 24px;
+  top: 24px;
+}
+
 @media (max-width: 1080px) {
   .app-shell,
-  .content-grid {
+  .content-grid,
+  .product-detail-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-field-grid,
+  .detail-field-grid.nested {
     grid-template-columns: 1fr;
   }
 
@@ -1335,14 +1540,108 @@ button:disabled {
 }
 
 @media (max-width: 720px) {
+  :root {
+    font-size: 13px;
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+
+  .app-shell {
+    display: block;
+  }
+
   .workspace,
   .sidebar {
-    padding: 12px;
+    padding: 12px 10px;
+  }
+
+  .sidebar {
+    gap: 14px;
+  }
+
+  .sidebar h1 {
+    font-size: 26px;
+  }
+
+  .workspace {
+    gap: 12px;
+  }
+
+  .workspace h2 {
+    font-size: 24px;
+    overflow-wrap: anywhere;
+  }
+
+  .panel h3 {
+    font-size: 20px;
+  }
+
+  .form-section h4,
+  .detail-section h4 {
+    font-size: 16px;
+  }
+
+  .nav {
+    display: flex;
+    gap: 8px;
+    margin-inline: -10px;
+    overflow-x: auto;
+    padding: 0 10px 4px;
+    scroll-snap-type: x proximity;
+  }
+
+  .nav button {
+    flex: 0 0 104px;
+    font-size: 12px;
+    gap: 6px;
+    justify-content: center;
+    line-height: 1.15;
+    min-height: 54px;
+    padding: 0 8px;
+    scroll-snap-align: start;
+    text-align: center;
+  }
+
+  .nav svg {
+    height: 14px;
+    width: 14px;
+  }
+
+  .api-box {
+    gap: 4px;
+    margin-top: 2px;
+    padding-top: 14px;
+  }
+
+  .api-box strong {
+    font-size: 12px;
   }
 
   .topbar {
-    align-items: flex-start;
-    padding: 12px;
+    align-items: center;
+    border-radius: 8px;
+    padding: 14px;
+  }
+
+  .topbar .icon-button {
+    height: 40px;
+    width: 40px;
+  }
+
+  .panel {
+    border-radius: 8px;
+    padding: 14px;
+  }
+
+  .panel-heading {
+    display: grid;
+    gap: 12px;
+  }
+
+  .panel-heading h3 {
+    overflow-wrap: anywhere;
   }
 
   .form-grid,
@@ -1354,13 +1653,35 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .field {
+    font-size: 12px;
+  }
+
+  .field input,
+  .field select,
+  .field textarea,
+  .inventory-row input,
+  .inventory-row select,
+  .inventory-total-input,
+  .sort-control select,
+  .product-picker {
+    font-size: 14px;
+    min-height: 40px;
+    padding-inline: 10px;
+  }
+
+  .field textarea {
+    min-height: 88px;
+  }
+
   .product-picker {
     min-width: 0;
     width: 100%;
   }
 
-  .panel-heading {
-    display: grid;
+  .sticky-submit {
+    bottom: auto;
+    position: static;
   }
 
   .compact-variant .form-grid,
@@ -1373,8 +1694,48 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .image-uploader {
+    min-height: 190px;
+    padding: 18px;
+  }
+
+  .image-uploader strong {
+    font-size: 16px;
+  }
+
+  .draft-copy h3,
+  .detail-hero-copy h3 {
+    font-size: 20px;
+  }
+
+  .primary-button,
+  .secondary-button {
+    min-height: 40px;
+  }
+
+  .inventory-toolbar,
+  .section-title-row {
+    align-items: stretch;
+    display: grid;
+    justify-content: stretch;
+  }
+
+  .sort-control {
+    justify-content: stretch;
+  }
+
   .inventory-product-head {
     display: none;
+  }
+
+  .inventory-product-row {
+    align-items: stretch;
+    padding: 12px;
+  }
+
+  .inventory-product-name strong,
+  .inventory-product-name span {
+    white-space: normal;
   }
 
   .inventory-actions {
@@ -1394,8 +1755,28 @@ button:disabled {
     max-width: none;
   }
 
+  .order-tabs {
+    flex-wrap: nowrap;
+    margin-inline: -14px;
+    overflow-x: auto;
+    padding: 0 14px 4px;
+  }
+
+  .order-tabs button {
+    flex: 0 0 auto;
+    font-size: 13px;
+    min-height: 40px;
+    padding: 0 12px;
+  }
+
+  .admin-order-card {
+    gap: 14px;
+    padding: 14px;
+  }
+
   .admin-order-top {
     display: grid;
+    gap: 12px;
   }
 
   .order-workflow {
@@ -1421,6 +1802,59 @@ button:disabled {
 
   .row-actions {
     flex-wrap: wrap;
+  }
+
+  .product-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-card h3 {
+    font-size: 16px;
+  }
+
+  .product-detail-page {
+    gap: 16px;
+  }
+
+  .detail-toolbar {
+    align-items: stretch;
+    display: grid;
+    gap: 10px;
+  }
+
+  .detail-toolbar .row-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .detail-gallery {
+    flex-wrap: nowrap;
+    margin-inline: -14px;
+    overflow-x: auto;
+    padding: 0 14px 4px;
+  }
+
+  .detail-gallery button {
+    flex: 0 0 92px;
+    height: 68px;
+  }
+
+  .detail-field {
+    padding: 9px;
+  }
+
+  .image-lightbox {
+    padding: 14px;
+  }
+
+  .image-lightbox img {
+    max-height: 86vh;
+    max-width: 94vw;
+  }
+
+  .lightbox-close {
+    right: 12px;
+    top: 12px;
   }
 }
 

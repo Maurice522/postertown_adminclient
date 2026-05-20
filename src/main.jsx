@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  ArrowLeft,
   Edit3,
   Boxes,
   ImagePlus,
@@ -13,7 +14,9 @@ import {
   Save,
   ShoppingBag,
   Trash2,
-  Upload
+  Upload,
+  X,
+  ZoomIn
 } from "lucide-react";
 import {
   apiRoutes,
@@ -197,9 +200,20 @@ const defaultSizes = [
 ];
 
 const sizeTypes = ["Small", "Medium", "Large", "Extra Large"];
+const orientationOptions = [
+  { value: "", label: "Select orientation" },
+  { value: "Portrait", label: "Portrait" },
+  { value: "Landscape", label: "Landscape" }
+];
 
 function cloneTemplate() {
   return structuredClone(productTemplate);
+}
+
+function normalizeOrientation(value = "") {
+  if (/landscape|horizontal/i.test(value)) return "Landscape";
+  if (/portrait|vertical/i.test(value)) return "Portrait";
+  return value || "";
 }
 
 function mergeProduct(product) {
@@ -212,9 +226,17 @@ function mergeProduct(product) {
     pricing: { ...productTemplate.pricing, ...(product.pricing || {}) },
     inventory: { ...productTemplate.inventory, ...(product.inventory || {}) },
     urgency: { ...productTemplate.urgency, ...(product.urgency || {}) },
-    specifications: { ...productTemplate.specifications, ...(product.specifications || {}) },
+    specifications: {
+      ...productTemplate.specifications,
+      ...(product.specifications || {}),
+      orientation: normalizeOrientation(product.specifications?.orientation)
+    },
     productAttributes: { ...productTemplate.productAttributes, ...(product.productAttributes || {}) },
-    filterableAttributes: { ...productTemplate.filterableAttributes, ...(product.filterableAttributes || {}) },
+    filterableAttributes: {
+      ...productTemplate.filterableAttributes,
+      ...(product.filterableAttributes || {}),
+      orientation: normalizeOrientation(product.filterableAttributes?.orientation)
+    },
     filters: { ...productTemplate.filters, ...(product.filters || {}) },
     ratings: {
       ...productTemplate.ratings,
@@ -281,6 +303,8 @@ function productPayload(form, options = {}) {
   payload.seo.keywords = splitLines(payload.seo.keywords);
   payload.crossSell.relatedProducts = splitLines(payload.crossSell.relatedProducts);
   payload.crossSell.frequentlyBoughtTogether = splitLines(payload.crossSell.frequentlyBoughtTogether);
+  payload.specifications.orientation = normalizeOrientation(payload.specifications.orientation);
+  payload.filterableAttributes.orientation = normalizeOrientation(payload.filterableAttributes.orientation || payload.specifications.orientation);
 
   const normalizedSizes = payload.sizes
     .filter((size) => size.type && size.inches && size.price)
@@ -725,11 +749,7 @@ function ProductForm({
           setForm={setForm}
           label="Orientation"
           path="specifications.orientation"
-          options={[
-            { value: "", label: "Select orientation" },
-            { value: "Portrait", label: "Portrait" },
-            { value: "Horizontal", label: "Horizontal" }
-          ]}
+          options={orientationOptions}
         />
         <TextField form={form} setForm={setForm} label="Shape" path="specifications.shape" />
         <TextField form={form} setForm={setForm} label="Thickness" path="specifications.thickness" />
@@ -754,11 +774,7 @@ function ProductForm({
           setForm={setForm}
           label="Orientation"
           path="filterableAttributes.orientation"
-          options={[
-            { value: "", label: "Select orientation" },
-            { value: "Portrait", label: "Portrait" },
-            { value: "Horizontal", label: "Horizontal" }
-          ]}
+          options={orientationOptions}
         />
         <LinesField form={form} setForm={setForm} label="Theme Filters" path="filters.theme" />
         <LinesField form={form} setForm={setForm} label="Character Filters" path="filters.character" />
@@ -797,10 +813,18 @@ function ProductForm({
   );
 }
 
-function ProductCard({ product, onEdit, onDelete }) {
+function ProductCard({ product, onEdit, onDelete, onOpen }) {
   const image = product.media?.thumbnail || product.media?.featuredImage || "/placeholder.svg";
   return (
-    <article className="product-card">
+    <article
+      className="product-card clickable-card"
+      onClick={() => onOpen(product)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") onOpen(product);
+      }}
+      role="button"
+      tabIndex={0}
+    >
       <img src={image} alt={product.name || "Product"} />
       <div className="product-card-body">
         <div>
@@ -813,15 +837,207 @@ function ProductCard({ product, onEdit, onDelete }) {
           <span>{product.inventory?.status || "stock unknown"}</span>
         </div>
         <div className="row-actions">
-          <button className="secondary-button" onClick={() => onEdit(product)}>
+          <button className="secondary-button" onClick={(event) => { event.stopPropagation(); onEdit(product); }}>
             <Edit3 size={14} /> Edit
           </button>
-          <button className="secondary-button danger-button" onClick={() => onDelete(product.id)}>
+          <button className="secondary-button danger-button" onClick={(event) => { event.stopPropagation(); onDelete(product.id); }}>
             <Trash2 size={14} /> Delete
           </button>
         </div>
       </div>
     </article>
+  );
+}
+
+function formatFieldLabel(value) {
+  return String(value)
+    .replace(/([A-Z])/g, " $1")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .trim();
+}
+
+function ProductFieldValue({ value }) {
+  if (value === null || value === undefined || value === "") {
+    return <span className="muted-value">-</span>;
+  }
+
+  if (typeof value === "boolean") {
+    return <span>{value ? "Yes" : "No"}</span>;
+  }
+
+  if (Array.isArray(value)) {
+    if (!value.length) return <span className="muted-value">-</span>;
+    return (
+      <div className="detail-nested-list">
+        {value.map((item, index) => (
+          <div className="detail-nested-item" key={`array-${index}`}>
+            <ProductFieldValue value={item} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    if (!entries.length) return <span className="muted-value">-</span>;
+    return (
+      <div className="detail-field-grid nested">
+        {entries.map(([key, item]) => (
+          <div className="detail-field" key={key}>
+            <span>{formatFieldLabel(key)}</span>
+            <ProductFieldValue value={item} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <span>{String(value)}</span>;
+}
+
+function ProductDetailSection({ title, data }) {
+  return (
+    <section className="detail-section">
+      <h4>{title}</h4>
+      <div className="detail-field-grid">
+        {Object.entries(data).map(([key, value]) => (
+          <div className="detail-field" key={key}>
+            <span>{formatFieldLabel(key)}</span>
+            <ProductFieldValue value={value} />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ImageLightbox({ image, alt, onClose }) {
+  if (!image) return null;
+
+  return (
+    <div className="image-lightbox" role="dialog" aria-modal="true" onClick={onClose}>
+      <button className="icon-button lightbox-close" type="button" onClick={onClose} title="Close image">
+        <X size={16} />
+      </button>
+      <img src={image} alt={alt || "Product image"} onClick={(event) => event.stopPropagation()} />
+    </div>
+  );
+}
+
+function ProductDetailPage({ product, onBack, onEdit, onDelete }) {
+  const [activeImage, setActiveImage] = useState("");
+  const normalizedProduct = mergeProduct(product || {});
+  const images = productImageUrls(normalizedProduct);
+  const heroImage = images[0] || "/placeholder.svg";
+
+  const {
+    id,
+    sku,
+    slug,
+    name,
+    subtitle,
+    brand,
+    vendor,
+    createdAt,
+    updatedAt,
+    category,
+    description,
+    media,
+    pricing,
+    inventory,
+    urgency,
+    variants,
+    specifications,
+    productAttributes,
+    filterableAttributes,
+    filters,
+    badges,
+    ratings,
+    reviews,
+    metrics,
+    socialProof,
+    userState,
+    shipping,
+    careInstructions,
+    seo,
+    crossSell,
+    flags,
+    compliance,
+    sizes,
+    ...otherFields
+  } = normalizedProduct;
+
+  return (
+    <>
+      <section className="panel wide-panel product-detail-page">
+        <div className="detail-toolbar">
+          <button className="secondary-button" type="button" onClick={onBack}>
+            <ArrowLeft size={14} /> Back
+          </button>
+          <div className="row-actions">
+            {id && (
+              <button className="secondary-button" type="button" onClick={() => onEdit(normalizedProduct)}>
+                <Edit3 size={14} /> Edit
+              </button>
+            )}
+            {id && (
+              <button className="secondary-button danger-button" type="button" onClick={() => onDelete(id)}>
+                <Trash2 size={14} /> Delete
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="product-detail-hero">
+          <button className="detail-hero-image" type="button" onClick={() => setActiveImage(heroImage)}>
+            <img src={heroImage} alt={name || "Product"} />
+            <span><ZoomIn size={15} /> View larger</span>
+          </button>
+          <div className="detail-hero-copy">
+            <p className="eyebrow">Product Detail</p>
+            <h3>{name || "Untitled Product"}</h3>
+            <p>{subtitle || description?.short || id}</p>
+            <div className="product-meta">
+              <span>{category?.main || "No category"}</span>
+              <span>{pricing?.currency || "INR"} {pricing?.price || 0}</span>
+              <span>{inventory?.stock || 0} stock</span>
+              <span>{inventory?.status || "stock unknown"}</span>
+            </div>
+          </div>
+        </div>
+
+        {images.length > 1 && (
+          <div className="detail-gallery">
+            {images.map((imageUrl, index) => (
+              <button type="button" key={`${imageUrl}-${index}`} onClick={() => setActiveImage(imageUrl)}>
+                <img src={imageUrl} alt={`${name || "Product"} ${index + 1}`} />
+              </button>
+            ))}
+          </div>
+        )}
+
+        <ProductDetailSection
+          title="Identity"
+          data={{ id, sku, slug, name, subtitle, brand, vendor, createdAt, updatedAt }}
+        />
+        <ProductDetailSection title="Category" data={category} />
+        <ProductDetailSection title="Description" data={description} />
+        <ProductDetailSection title="Media" data={media} />
+        <ProductDetailSection title="Pricing" data={pricing} />
+        <ProductDetailSection title="Inventory" data={inventory} />
+        <ProductDetailSection title="Sizes" data={{ sizes }} />
+        <ProductDetailSection title="Variants" data={{ variants }} />
+        <ProductDetailSection title="Specifications" data={specifications} />
+        <ProductDetailSection title="Attributes" data={{ productAttributes, filterableAttributes, filters, badges }} />
+        <ProductDetailSection title="Ratings & Reviews" data={{ ratings, reviews }} />
+        <ProductDetailSection title="Metrics & Social Proof" data={{ metrics, socialProof, userState }} />
+        <ProductDetailSection title="Shipping, SEO & Compliance" data={{ shipping, careInstructions, seo, crossSell, flags, compliance }} />
+        {Object.keys(otherFields).length > 0 && <ProductDetailSection title="Other Fields" data={otherFields} />}
+      </section>
+      <ImageLightbox image={activeImage} alt={name || "Product image"} onClose={() => setActiveImage("")} />
+    </>
   );
 }
 
@@ -1275,9 +1491,43 @@ function formatDateTime(value) {
   });
 }
 
+function productImageUrls(product) {
+  const values = [
+    product?.media?.featuredImage,
+    product?.media?.thumbnail,
+    ...(product?.media?.gallery || []),
+    ...(product?.media?.cloudinary || []).map((image) => image?.url || image?.secure_url)
+  ];
+
+  return [...new Set(values.filter(Boolean))];
+}
+
 function itemImageUrl(item) {
   if (Array.isArray(item?.image)) return item.image?.[0]?.url || item.image?.[0] || "/placeholder.svg";
   return item?.image || item?.media?.thumbnail || item?.media?.featuredImage || "/placeholder.svg";
+}
+
+function findProductForOrderItem(item, products) {
+  const identifiers = [
+    item?.productId,
+    item?.product?.id,
+    item?.id,
+    item?.sku,
+    item?.variantId
+  ].filter(Boolean).map((value) => String(value).toLowerCase());
+  const name = String(item?.name || "").toLowerCase();
+
+  return products.find((product) => {
+    const productValues = [
+      product.id,
+      product.sku,
+      product.slug,
+      ...(product.variants || []).flatMap((variant) => [variant.id, variant.sku]),
+      ...(product.sizes || []).flatMap((size) => [size.id, size.sku, size.variantId])
+    ].filter(Boolean).map((value) => String(value).toLowerCase());
+
+    return productValues.some((value) => identifiers.includes(value)) || (name && String(product.name || "").toLowerCase() === name);
+  });
 }
 
 function orderTimestampUpdates(order, status) {
@@ -1291,7 +1541,7 @@ function orderTimestampUpdates(order, status) {
   };
 }
 
-function OrdersManager({ orders, loading, onStatusChange }) {
+function OrdersManager({ orders, products, loading, onStatusChange, onOpenProduct }) {
   const [activeOrderTab, setActiveOrderTab] = useState("all");
   const visibleOrders = orders.filter((order) => (
     activeOrderTab === "all" ? true : orderTabForStatus(order) === activeOrderTab
@@ -1426,17 +1676,47 @@ function OrdersManager({ orders, loading, onStatusChange }) {
                 <h4>Products</h4>
                 <span>{order.items?.length || 0} item{order.items?.length === 1 ? "" : "s"}</span>
               </div>
-              {(order.items || []).map((item, index) => (
-                <div className="admin-order-item" key={`${order.id}-item-${item.id || index}`}>
-                  <img src={itemImageUrl(item)} alt={item.name || "Order item"} />
-                  <div>
-                    <strong>{item.name || item.id}</strong>
-                    <span>{item.subtitle || item.sku || item.id}</span>
-                    <span>Size: {item.size || item.sizeType || "-"} | Qty: {item.amount || 1}</span>
-                  </div>
-                  <strong>INR {Number((item.price || 0) * (item.amount || 1)).toLocaleString("en-IN")}</strong>
-                </div>
-              ))}
+              {(order.items || []).map((item, index) => {
+                const matchedProduct = findProductForOrderItem(item, products);
+                const fallbackProduct = mergeProduct({
+                  id: item.productId || item.id || item.sku || `${order.id}-item-${index}`,
+                  sku: item.sku || "",
+                  name: item.name || item.id || "Order item",
+                  subtitle: item.subtitle || "",
+                  media: {
+                    ...productTemplate.media,
+                    featuredImage: itemImageUrl(item),
+                    thumbnail: itemImageUrl(item)
+                  },
+                  pricing: {
+                    ...productTemplate.pricing,
+                    price: item.price || 0
+                  },
+                  sizes: [{
+                    type: item.sizeType || item.size || "",
+                    inches: item.size || "",
+                    price: item.price || 0,
+                    stock: ""
+                  }]
+                });
+
+                return (
+                  <button
+                    className="admin-order-item clickable-order-item"
+                    key={`${order.id}-item-${item.id || index}`}
+                    type="button"
+                    onClick={() => onOpenProduct(matchedProduct || fallbackProduct)}
+                  >
+                    <img src={itemImageUrl(item)} alt={item.name || "Order item"} />
+                    <div>
+                      <strong>{item.name || item.id}</strong>
+                      <span>{item.subtitle || item.sku || item.id}</span>
+                      <span>Size: {item.size || item.sizeType || "-"} | Qty: {item.amount || 1}</span>
+                    </div>
+                    <strong>INR {Number((item.price || 0) * (item.amount || 1)).toLocaleString("en-IN")}</strong>
+                  </button>
+                );
+              })}
             </div>
           </article>
           );
@@ -1527,7 +1807,7 @@ function GeneratedDetailsForm({ form, setForm, sizes, setSizes, additionalImages
       <Section title="Specifications">
         <TextField form={form} setForm={setForm} label="Material" path="specifications.material" />
         <TextField form={form} setForm={setForm} label="Finish" path="specifications.finish" />
-        <TextField form={form} setForm={setForm} label="Orientation" path="specifications.orientation" />
+        <SelectField form={form} setForm={setForm} label="Orientation" path="specifications.orientation" options={orientationOptions} />
         <TextField form={form} setForm={setForm} label="Shape" path="specifications.shape" />
         <TextField form={form} setForm={setForm} label="Thickness" path="specifications.thickness" />
         <TextField form={form} setForm={setForm} label="Weight" path="specifications.weight" />
@@ -1546,7 +1826,7 @@ function GeneratedDetailsForm({ form, setForm, sizes, setSizes, additionalImages
         <TextField form={form} setForm={setForm} label="Character" path="filterableAttributes.character" />
         <TextField form={form} setForm={setForm} label="Theme" path="filterableAttributes.theme" />
         <TextField form={form} setForm={setForm} label="Material" path="filterableAttributes.material" />
-        <TextField form={form} setForm={setForm} label="Orientation" path="filterableAttributes.orientation" />
+        <SelectField form={form} setForm={setForm} label="Orientation" path="filterableAttributes.orientation" options={orientationOptions} />
         <LinesField form={form} setForm={setForm} label="Theme Filters" path="filters.theme" />
         <LinesField form={form} setForm={setForm} label="Character Filters" path="filters.character" />
         <LinesField form={form} setForm={setForm} label="Color Palette" path="filters.colorPalette" />
@@ -1750,6 +2030,9 @@ function App() {
   const [inventoryDrafts, setInventoryDrafts] = useState({});
   const [expandedInventoryIds, setExpandedInventoryIds] = useState([]);
   const [inventorySort, setInventorySort] = useState("name");
+  const [selectedProductId, setSelectedProductId] = useState("");
+  const [selectedProductFallback, setSelectedProductFallback] = useState(null);
+  const [previousProductPage, setPreviousProductPage] = useState("products");
   const [loading, setLoading] = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -1758,6 +2041,10 @@ function App() {
   const editingProduct = useMemo(
     () => products.find((product) => product.id === editingId),
     [editingId, products]
+  );
+  const selectedProduct = useMemo(
+    () => products.find((product) => product.id === selectedProductId) || selectedProductFallback,
+    [products, selectedProductId, selectedProductFallback]
   );
 
   async function refreshProducts() {
@@ -2036,6 +2323,11 @@ function App() {
         setEditingId("");
         setForm(cloneTemplate());
       }
+      if (selectedProductId === productId) {
+        setSelectedProductId("");
+        setSelectedProductFallback(null);
+        setPage("products");
+      }
       await refreshProducts();
     } catch (err) {
       setError(err.message);
@@ -2071,12 +2363,24 @@ function App() {
     setPage("edit");
   }
 
+  function goProductDetail(product) {
+    setSelectedProductId(product?.id || "");
+    setSelectedProductFallback(product || null);
+    setPreviousProductPage(page === "productDetail" ? previousProductPage : page);
+    setPage("productDetail");
+  }
+
+  function leaveProductDetail() {
+    setPage(previousProductPage || "products");
+  }
+
   const title = {
     upload: "Upload Product",
     edit: "Edit Product",
     inventory: "Inventory & Prices",
     orders: "Orders",
-    products: "All Products"
+    products: "All Products",
+    productDetail: selectedProduct?.name || "Product Detail"
   }[page];
 
   return (
@@ -2099,7 +2403,7 @@ function App() {
           <button className={page === "orders" ? "active" : ""} onClick={() => setPage("orders")}>
             <ShoppingBag size={18} /> Orders
           </button>
-          <button className={page === "products" ? "active" : ""} onClick={() => setPage("products")}>
+          <button className={page === "products" || page === "productDetail" ? "active" : ""} onClick={() => setPage("products")}>
             <LayoutGrid size={18} /> All Products
           </button>
         </nav>
@@ -2223,8 +2527,19 @@ function App() {
         {page === "orders" && (
           <OrdersManager
             orders={orders}
+            products={products}
             loading={loading}
             onStatusChange={handleOrderStatusChange}
+            onOpenProduct={goProductDetail}
+          />
+        )}
+
+        {page === "productDetail" && selectedProduct && (
+          <ProductDetailPage
+            product={selectedProduct}
+            onBack={leaveProductDetail}
+            onEdit={goEdit}
+            onDelete={handleDelete}
           />
         )}
 
@@ -2238,7 +2553,7 @@ function App() {
             </div>
             <div className="product-grid">
               {products.map((product) => (
-                <ProductCard key={product.id} product={product} onEdit={goEdit} onDelete={handleDelete} />
+                <ProductCard key={product.id} product={product} onEdit={goEdit} onDelete={handleDelete} onOpen={goProductDetail} />
               ))}
               {!products.length && <p className="empty">No products yet.</p>}
             </div>
