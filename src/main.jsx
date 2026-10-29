@@ -4,7 +4,9 @@ import {
   ArrowLeft,
   Edit3,
   Boxes,
+  Crop,
   ImagePlus,
+  Sparkles,
   LayoutGrid,
   Mail,
   MapPin,
@@ -28,6 +30,9 @@ import {
   updateOrder,
   updateProduct
 } from "./services/api.js";
+import MockupGallery from "./components/MockupGallery.jsx";
+import ImageTools from "./components/ImageTools.jsx";
+import { fitUploadLimit, generateMockups } from "./utils/posterMockups.js";
 import "./styles.css";
 
 const productTemplate = {
@@ -629,7 +634,9 @@ function ProductForm({
   onGenerateDraft,
   loading,
   draftLoading,
-  showImageTools = false
+  showImageTools = false,
+  onGenerateMockups,
+  mockupLoading = false
 }) {
   return (
     <form className="product-form" onSubmit={onSubmit}>
@@ -676,6 +683,11 @@ function ProductForm({
             <button type="button" className="secondary-button" disabled={!images.length || draftLoading} onClick={onGenerateDraft}>
               <ImagePlus size={15} /> {draftLoading ? "Generating..." : "Upload Image & Autofill"}
             </button>
+            {onGenerateMockups && (
+              <button type="button" className="secondary-button" disabled={(!images.length && !form.media?.featuredImage) || mockupLoading} onClick={onGenerateMockups}>
+                <Sparkles size={15} /> {mockupLoading ? "Generating..." : "Generate Mockups"}
+              </button>
+            )}
           </div>
         )}
         {showImageTools && images[0] && (
@@ -1041,7 +1053,7 @@ function ProductDetailPage({ product, onBack, onEdit, onDelete }) {
   );
 }
 
-function ImageDraftStep({ images, setImages, imagePreview, setImagePreview, onGenerateDraft, draftLoading }) {
+function ImageDraftStep({ images, setImages, imagePreview, setImagePreview, onGenerateDraft, draftLoading, children }) {
   function chooseImage(event) {
     const files = [...event.target.files];
     setImages(files);
@@ -1063,7 +1075,7 @@ function ImageDraftStep({ images, setImages, imagePreview, setImagePreview, onGe
           <>
             <ImagePlus size={27} />
             <strong>Choose main poster image</strong>
-            <span>PNG, JPG, or WEBP up to 5MB</span>
+            <span>PNG, JPG, or WEBP. Large files are compressed automatically.</span>
           </>
         )}
         <input type="file" accept="image/*" onChange={chooseImage} />
@@ -1074,6 +1086,7 @@ function ImageDraftStep({ images, setImages, imagePreview, setImagePreview, onGe
         {draftLoading ? "Uploading & Generating..." : "Upload Image & Generate Details"}
       </button>
       {draftLoading && <div className="loading-panel">Gemini is reading the poster and preparing the product details. This can take a moment.</div>}
+      {children}
     </section>
   );
 }
@@ -2035,6 +2048,10 @@ function App() {
   const [previousProductPage, setPreviousProductPage] = useState("products");
   const [loading, setLoading] = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
+  const [mockups, setMockups] = useState([]);
+  const [selectedMockups, setSelectedMockups] = useState([]);
+  const [mockupLoading, setMockupLoading] = useState(false);
+  const [mockupError, setMockupError] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -2092,7 +2109,68 @@ function App() {
     }
   }, [editingProduct]);
 
+  async function buildMockups(file) {
+    setMockupLoading(true);
+    setMockupError("");
+    try {
+      const generated = await generateMockups(file);
+      setMockups(generated);
+      setSelectedMockups(generated.map((mockup) => mockup.key));
+      return generated;
+    } catch (err) {
+      setMockups([]);
+      setMockupError(`Could not generate mockups: ${err.message}`);
+      return [];
+    } finally {
+      setMockupLoading(false);
+    }
+  }
+
+  function clearMockups() {
+    mockups.forEach((mockup) => URL.revokeObjectURL(mockup.url));
+    setMockups([]);
+    setSelectedMockups([]);
+    setMockupError("");
+  }
+
+  // New uploads: build the mockups as soon as the main image is chosen.
+  const chosenUploadImage = page === "upload" && uploadStep === "image" ? images[0] : null;
+  useEffect(() => {
+    if (chosenUploadImage) buildMockups(chosenUploadImage);
+  }, [chosenUploadImage]);
+
+  function toggleMockup(key) {
+    setSelectedMockups((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
+  }
+
+  async function handleEditMockups() {
+    setError("");
+    try {
+      let source = images[0];
+      if (!source) {
+        const response = await fetch(form.media.featuredImage);
+        if (!response.ok) throw new Error("Could not download the current main image");
+        const blob = await response.blob();
+        source = new File([blob], `${form.slug || form.id || "poster"}.jpg`, { type: blob.type });
+      }
+      const generated = await buildMockups(source);
+      setEditAdditionalImages((current) => [...current.filter(Boolean), ...generated.map((mockup) => mockup.file)]);
+      if (generated.length) setNotice(`${generated.length} mockups added to Additional Images. Save to upload them.`);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function useImageForProduct(file) {
+    resetUpload();
+    setImages([file]);
+    setImagePreview(URL.createObjectURL(file));
+    setPage("upload");
+    setNotice("Image loaded into Upload Product.");
+  }
+
   function resetUpload() {
+    clearMockups();
     setForm(cloneTemplate());
     setImages([]);
     setImagePreview("");
@@ -2129,19 +2207,37 @@ function App() {
     setError("");
     setNotice("");
     try {
-      const draft = await createProductDraftFromImage(images[0]);
+      const draft = await createProductDraftFromImage(await fitUploadLimit(images[0]));
+      const editing = page === "edit";
       setForm((current) => {
         const merged = mergeAiDraft(current, draft);
+        if (editing) {
+          // Keep the product's identity and existing gallery; only the copy is refreshed.
+          return {
+            ...merged,
+            id: current.id,
+            sku: current.sku || generateSku(merged),
+            slug: current.slug || merged.slug,
+            media: {
+              ...merged.media,
+              gallery: [...new Set([...(merged.media?.gallery || []), ...(current.media?.gallery || [])])],
+              cloudinary: [...(merged.media?.cloudinary || []), ...(current.media?.cloudinary || [])]
+            }
+          };
+        }
         return {
           ...merged,
           id: generateProductId(merged),
-          sku: merged.sku || generateSku(merged),
+          sku: generateSku(merged),
           createdAt: merged.createdAt || new Date().toISOString().slice(0, 10)
         };
       });
+      if (!editing) {
+        setAdditionalImages(mockups.filter((mockup) => selectedMockups.includes(mockup.key)).map((mockup) => mockup.file));
+        setUploadStep("details");
+      }
       setImages([]);
       setImagePreview("");
-      setUploadStep("details");
       setNotice("Image uploaded and product details generated.");
     } catch (err) {
       setError(err.status === 429 ? "Gemini is rate limited right now. Please try again after a few minutes." : err.message);
@@ -2380,6 +2476,7 @@ function App() {
     inventory: "Inventory & Prices",
     orders: "Orders",
     products: "All Products",
+    tools: "Image Tools",
     productDetail: selectedProduct?.name || "Product Detail"
   }[page];
 
@@ -2405,6 +2502,9 @@ function App() {
           </button>
           <button className={page === "products" || page === "productDetail" ? "active" : ""} onClick={() => setPage("products")}>
             <LayoutGrid size={18} /> All Products
+          </button>
+          <button className={page === "tools" ? "active" : ""} onClick={() => setPage("tools")}>
+            <Crop size={18} /> Image Tools
           </button>
         </nav>
         <div className="api-box">
@@ -2442,7 +2542,16 @@ function App() {
                 setImagePreview={setImagePreview}
                 onGenerateDraft={handleGenerateDraft}
                 draftLoading={draftLoading}
-              />
+              >
+                <MockupGallery
+                  mockups={mockups}
+                  selected={selectedMockups}
+                  onToggle={toggleMockup}
+                  loading={mockupLoading}
+                  error={mockupError}
+                  note={mockups.length ? "Selected mockups are added to the product's gallery. Click one to leave it out." : ""}
+                />
+              </ImageDraftStep>
             )}
             {uploadStep === "details" && (
               <GeneratedDetailsForm
@@ -2496,6 +2605,8 @@ function App() {
                 loading={loading}
                 draftLoading={draftLoading}
                 showImageTools
+                onGenerateMockups={handleEditMockups}
+                mockupLoading={mockupLoading}
               />
             ) : (
               <p className="empty">Select a product from the dropdown to edit its full syntax fields.</p>
@@ -2542,6 +2653,8 @@ function App() {
             onDelete={handleDelete}
           />
         )}
+
+        {page === "tools" && <ImageTools onUseForProduct={useImageForProduct} />}
 
         {page === "products" && (
           <section className="panel wide-panel">
