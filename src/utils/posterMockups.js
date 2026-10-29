@@ -12,7 +12,15 @@ export function loadImage(source) {
       if (source instanceof Blob) URL.revokeObjectURL(url);
       resolve(image);
     };
-    image.onerror = () => reject(new Error("Could not read image"));
+    image.onerror = () => {
+      if (source instanceof Blob) {
+        URL.revokeObjectURL(url);
+        const kind = source.type || source.name?.split(".").pop() || "unknown type";
+        reject(new Error(`the browser can't open "${source.name || "this image"}" (${kind}). Use a JPG, PNG or WEBP file.`));
+      } else {
+        reject(new Error(`could not load ${source}. Is the admin dev server still running?`));
+      }
+    };
     image.src = url;
   });
 }
@@ -71,6 +79,54 @@ function unitSquareToQuad([p0, p1, p2, p3]) {
     const w = g * u + h * v + 1;
     return [(a * u + b * v + x0) / w, (d * u + e * v + y0) / w];
   };
+}
+
+// Corners [tl, tr, br, bl] of a flat sheet (width/height = aspect) turned in 3D and
+// seen through a perspective camera, scaled to fit inside box [left, top, right, bottom].
+// yaw > 0 turns the right edge away from the viewer; pitch > 0 tips the top away.
+function sheetIn3d(aspect, box, { yaw = 0, pitch = 0, roll = 0, focal = 3 } = {}) {
+  const rad = Math.PI / 180;
+  const [cy, sy] = [Math.cos(yaw * rad), Math.sin(yaw * rad)];
+  const [cp, sp] = [Math.cos(pitch * rad), Math.sin(pitch * rad)];
+  const [cr, sr] = [Math.cos(roll * rad), Math.sin(roll * rad)];
+  const w = aspect / 2;
+  const h = 0.5;
+  const projected = [[-w, -h], [w, -h], [w, h], [-w, h]].map(([x, y]) => {
+    [x, y] = [x * cr - y * sr, x * sr + y * cr];
+    let z = 0;
+    [x, z] = [x * cy, x * sy];
+    [y, z] = [y * cp - z * sp, y * sp + z * cp];
+    const scale = focal / (focal + z);
+    return [x * scale, y * scale];
+  });
+  const xs = projected.map(([x]) => x);
+  const ys = projected.map(([, y]) => y);
+  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const [left, top, right, bottom] = box;
+  const fit = Math.min((right - left) / (maxX - minX), (bottom - top) / (maxY - minY));
+  const offsetX = (left + right) / 2 - ((minX + maxX) / 2) * fit;
+  const offsetY = (top + bottom) / 2 - ((minY + maxY) / 2) * fit;
+  return projected.map(([x, y]) => [x * fit + offsetX, y * fit + offsetY]);
+}
+
+// Two-layer shadow: a tight contact shadow and a wide soft one, so the sheet reads
+// as hanging slightly off the surface instead of sitting on a grey blob.
+function drawSoftShadow(ctx, map, { dx = 1, dy = 1, depth = 1 } = {}) {
+  [
+    { blur: 10, offset: 5, alpha: 0.22 },
+    { blur: 70, offset: 34, alpha: 0.16 }
+  ].forEach(({ blur, offset, alpha }) => {
+    ctx.save();
+    ctx.shadowBlur = blur * depth;
+    ctx.shadowOffsetX = offset * dx * depth + 10000;
+    ctx.shadowOffsetY = offset * dy * depth;
+    ctx.shadowColor = `rgba(0,0,0,${alpha})`;
+    ctx.translate(-10000, 0);
+    ctx.fillStyle = "#000";
+    outlinePath(ctx, map);
+    ctx.fill();
+    ctx.restore();
+  });
 }
 
 function quadraticPoint(start, control, end, t) {
@@ -211,20 +267,17 @@ function drawShadow(ctx, map, { blur, offsetX, offsetY, color }) {
   ctx.restore();
 }
 
-// Thin bright metal edge visible on the near side of a tilted sheet.
-function drawEdge(ctx, map, side, thickness, color = "#e9ecef") {
-  const pts = [];
-  for (let i = 0; i <= 24; i += 1) pts.push(side === "left" ? map(0, i / 24) : map(i / 24, 1));
+// Crisp outline so the sheet edge reads as cut metal rather than a blurry border.
+function drawRim(ctx, map) {
   ctx.save();
-  ctx.beginPath();
-  pts.forEach(([x, y], index) => (index ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-  for (let i = pts.length - 1; i >= 0; i -= 1) {
-    const [x, y] = pts[i];
-    ctx.lineTo(side === "left" ? x - thickness : x, side === "left" ? y : y + thickness);
-  }
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
+  outlinePath(ctx, map);
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "rgba(255,255,255,0.55)";
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -332,22 +385,20 @@ function fillStudioBackground(ctx, width, height) {
 // 1. Feature card: tilted poster plus the four selling points.
 function renderFeatures(art, landscape) {
   const width = 1500;
-  const height = landscape ? 1500 : 1875;
+  const height = 1500;
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
   fillStudioBackground(ctx, width, height);
 
-  let quad;
-  if (landscape) {
-    quad = [[110, 120], [1390, 175], [1390, 905], [110, 960]];
-  } else {
-    quad = [[45, 95], [760, 190], [760, 1690], [45, 1785]];
-  }
+  // Turned slightly away to the right, like a sheet on a wall seen from the left.
+  const quad = landscape
+    ? sheetIn3d(A_RATIO, [140, 110, 1360, 960], { yaw: 20, focal: 2.6 })
+    : sheetIn3d(1 / A_RATIO, [70, 70, 930, 1430], { yaw: 24, focal: 2.6 });
   const map = unitSquareToQuad(quad);
-  drawShadow(ctx, map, { blur: 60, offsetX: 26, offsetY: 30, color: "rgba(0,0,0,0.28)" });
+  drawSoftShadow(ctx, map, { dx: 0.8, dy: 1 });
   drawWarped(ctx, art, map);
-  drawSheen(ctx, map, { strength: 0.16 });
-  drawEdge(ctx, map, "left", 6);
+  drawSheen(ctx, map, { from: [0, 0], to: [1, 1], strength: 0.12 });
+  drawRim(ctx, map);
 
   const iconSize = 124;
   ctx.textAlign = "center";
@@ -360,13 +411,13 @@ function renderFeatures(art, landscape) {
       drawLabel(ctx, feature.label, cx, 1270, columnWidth - 40);
     });
   } else {
-    const cx = 1135;
-    const gap = 360;
+    const cx = 1215;
+    const gap = 330;
     const top = height / 2 - (gap * 3 + iconSize + 120) / 2;
     featureList.forEach((feature, index) => {
       const y = top + gap * index;
       feature.icon(ctx, cx - iconSize / 2, y, iconSize);
-      drawLabel(ctx, feature.label, cx, y + iconSize + 36, 560);
+      drawLabel(ctx, feature.label, cx, y + iconSize + 30, 500);
     });
   }
   return canvas;
@@ -533,13 +584,13 @@ function renderPerspective(art, landscape) {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
   const quad = landscape
-    ? [[70, 120], [1500, 60], [1545, 1090], [120, 1150]]
-    : [[115, 70], [1060, 175], [1120, 1555], [70, 1450]];
+    ? sheetIn3d(A_RATIO, [130, 150, 1450, 1030], { yaw: -22, pitch: 10, roll: -3, focal: 2.4 })
+    : sheetIn3d(1 / A_RATIO, [150, 110, 1030, 1450], { yaw: -24, pitch: 10, roll: -3, focal: 2.4 });
   const map = unitSquareToQuad(quad);
-  drawShadow(ctx, map, { blur: 45, offsetX: -22, offsetY: 26, color: "rgba(0,0,0,0.35)" });
+  drawSoftShadow(ctx, map, { dx: 1, dy: 1.2, depth: 1.2 });
   drawWarped(ctx, art, map);
-  drawSheen(ctx, map, { from: [0, 0], to: [1, 1], strength: 0.2 });
-  drawEdge(ctx, map, "left", 5, "#f1f3f5");
+  drawSheen(ctx, map, { from: [1, 0], to: [0, 1], strength: 0.16 });
+  drawRim(ctx, map);
   return canvas;
 }
 
