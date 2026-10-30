@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Edit3,
   Boxes,
+  Layers,
   Crop,
   ImagePlus,
   Sparkles,
@@ -15,6 +16,7 @@ import {
   RefreshCcw,
   Save,
   ShoppingBag,
+  LogOut,
   Trash2,
   Upload,
   X,
@@ -22,6 +24,10 @@ import {
 } from "lucide-react";
 import {
   apiRoutes,
+  checkAdminSession,
+  clearAdminSession,
+  getAdminSession,
+  SESSION_EXPIRED_EVENT,
   createProduct,
   createProductDraftFromImage,
   deleteProduct,
@@ -32,6 +38,10 @@ import {
 } from "./services/api.js";
 import MockupGallery from "./components/MockupGallery.jsx";
 import ImageTools from "./components/ImageTools.jsx";
+import PaymentCheck from "./components/PaymentCheck.jsx";
+import CollectionPicker from "./components/CollectionPicker.jsx";
+import AdminLogin from "./components/AdminLogin.jsx";
+import BulkUpload from "./components/BulkUpload.jsx";
 import { fitUploadLimit, generateMockups } from "./utils/posterMockups.js";
 import "./styles.css";
 
@@ -204,6 +214,16 @@ const defaultSizes = [
   }
 ];
 
+// The storefront sells every poster in these three sizes; new uploads start with them filled in.
+function standardSizes() {
+  return [
+    { type: "Small", paper: "A4", inches: "12 x 9", price: 999, stock: 25 },
+    { type: "Medium", paper: "A3", inches: "15.8 x 12", price: 1499, stock: 25 },
+    { type: "Large", paper: "A2", inches: "24 x 18", price: 1699, stock: 25 }
+  ];
+}
+
+const paperSizeOptions = ["", "A5", "A4", "A3", "A2"];
 const sizeTypes = ["Small", "Medium", "Large", "Extra Large"];
 const orientationOptions = [
   { value: "", label: "Select orientation" },
@@ -324,6 +344,7 @@ function productPayload(form, options = {}) {
       return {
         id: size.id || `${payload.id}-size-${safeType}`,
         type: size.type,
+        paper: size.paper || "",
         inches: size.inches,
         price,
         stock,
@@ -656,6 +677,8 @@ function ProductForm({
         <TextField form={form} setForm={setForm} label="Collection" path="category.collection" />
       </Section>
 
+      <CollectionPicker form={form} setForm={setForm} />
+
       <section className="form-section">
         <h4>Description</h4>
         <div className="form-grid">
@@ -880,6 +903,18 @@ function ProductFieldValue({ value }) {
 
   if (Array.isArray(value)) {
     if (!value.length) return <span className="muted-value">-</span>;
+    if (value.every((item) => typeof item === "string" || typeof item === "number")) {
+      const short = value.every((item) => String(item).length <= 32);
+      return short ? (
+        <div className="detail-chips">
+          {value.map((item, index) => <span key={`chip-${index}`}>{String(item)}</span>)}
+        </div>
+      ) : (
+        <ul className="detail-list">
+          {value.map((item, index) => <li key={`item-${index}`}>{String(item)}</li>)}
+        </ul>
+      );
+    }
     return (
       <div className="detail-nested-list">
         {value.map((item, index) => (
@@ -909,18 +944,128 @@ function ProductFieldValue({ value }) {
   return <span>{String(value)}</span>;
 }
 
+function isEmptyValue(value) {
+  if (value === null || value === undefined || value === "") return true;
+  if (Array.isArray(value)) return value.every(isEmptyValue);
+  if (typeof value === "object") return Object.values(value).every(isEmptyValue);
+  return false;
+}
+
+// Long text gets a wider card so it reads like a paragraph instead of a narrow column.
+function fieldWidthClass(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return " span-3";
+  const text = Array.isArray(value) ? value.join(" ") : typeof value === "string" ? value : "";
+  if (text.length > 220) return " span-3";
+  if (text.length > 70) return " span-2";
+  return "";
+}
+
 function ProductDetailSection({ title, data }) {
+  if (!data || isEmptyValue(data)) return null;
+
   return (
     <section className="detail-section">
       <h4>{title}</h4>
       <div className="detail-field-grid">
         {Object.entries(data).map(([key, value]) => (
-          <div className="detail-field" key={key}>
+          <div className={`detail-field${fieldWidthClass(value)}`} key={key}>
             <span>{formatFieldLabel(key)}</span>
             <ProductFieldValue value={value} />
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+// Product images as pictures (with their mockup captions), not raw URLs.
+function MediaSection({ media, onOpen }) {
+  const featured = media?.featuredImage;
+  const gallery = (Array.isArray(media?.gallery) ? media.gallery : []).filter((url) => url && url !== featured);
+  const labels = Array.isArray(media?.galleryLabels) ? media.galleryLabels : [];
+  const labelFor = (url) => labels.find((entry) => entry?.url === url)?.label || "Gallery image";
+  const cloudinary = (Array.isArray(media?.cloudinary) ? media.cloudinary : []).filter(Boolean);
+  if (!featured && !gallery.length) return null;
+
+  return (
+    <section className="detail-section">
+      <h4>Media</h4>
+      <div className="media-grid">
+        {featured && (
+          <button type="button" className="media-tile featured" onClick={() => onOpen(featured)}>
+            <img src={featured} alt="Main product image" />
+            <span>Main image</span>
+          </button>
+        )}
+        {gallery.map((url, index) => (
+          <button type="button" className="media-tile" key={`${url}-${index}`} onClick={() => onOpen(url)}>
+            <img src={url} alt={labelFor(url)} loading="lazy" />
+            <span>{labelFor(url)}</span>
+          </button>
+        ))}
+      </div>
+      {media?.video && (
+        <p className="media-video">
+          Video: <a href={media.video} target="_blank" rel="noopener noreferrer">{media.video}</a>
+        </p>
+      )}
+      {cloudinary.length > 0 && (
+        <details className="detail-technical">
+          <summary>Technical details ({cloudinary.length} files on Cloudinary)</summary>
+          <table className="detail-table">
+            <thead>
+              <tr><th>File</th><th>Size</th><th>Format</th></tr>
+            </thead>
+            <tbody>
+              {cloudinary.map((item, index) => (
+                <tr key={`${item.publicId || item.url}-${index}`}>
+                  <td><a href={item.url} target="_blank" rel="noopener noreferrer">{String(item.publicId || item.url).split("/").pop()}</a></td>
+                  <td>{item.width && item.height ? `${item.width} × ${item.height}` : "-"}</td>
+                  <td>{item.format || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
+    </section>
+  );
+}
+
+// Sizes as one readable table; variants mirror them, so they stay folded away.
+function SizesSection({ sizes, variants }) {
+  const rows = Array.isArray(sizes) ? sizes : [];
+  if (!rows.length) return null;
+
+  return (
+    <section className="detail-section">
+      <h4>Sizes</h4>
+      <div className="detail-table-wrap">
+        <table className="detail-table">
+          <thead>
+            <tr><th>Size</th><th>Paper</th><th>Inches</th><th>Price</th><th>Was</th><th>Stock</th><th>SKU</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((size, index) => (
+              <tr key={size.id || index}>
+                <td><strong>{size.type || "-"}</strong></td>
+                <td>{size.paper || "-"}</td>
+                <td>{size.inches || "-"}</td>
+                <td>INR {Number(size.price || 0).toLocaleString("en-IN")}</td>
+                <td>{size.pricing?.compareAtPrice ? `INR ${Number(size.pricing.compareAtPrice).toLocaleString("en-IN")}` : "-"}</td>
+                <td>{size.stock ?? "-"}</td>
+                <td className="detail-sku">{size.sku || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {Array.isArray(variants) && variants.length > 0 && (
+        <details className="detail-technical">
+          <summary>Variants ({variants.length})</summary>
+          <ProductFieldValue value={variants} />
+        </details>
+      )}
     </section>
   );
 }
@@ -978,8 +1123,14 @@ function ProductDetailPage({ product, onBack, onEdit, onDelete }) {
     flags,
     compliance,
     sizes,
+    collections,
+    importKey,
     ...otherFields
   } = normalizedProduct;
+  // Defaults like "No" / empty counters are not real metrics; only show the section when something was recorded.
+  const hasMetrics = [metrics, socialProof].some((group) =>
+    Object.values(group || {}).some((value) => value !== "" && value !== null && value !== undefined && value !== false)
+  );
 
   return (
     <>
@@ -1020,32 +1171,26 @@ function ProductDetailPage({ product, onBack, onEdit, onDelete }) {
           </div>
         </div>
 
-        {images.length > 1 && (
-          <div className="detail-gallery">
-            {images.map((imageUrl, index) => (
-              <button type="button" key={`${imageUrl}-${index}`} onClick={() => setActiveImage(imageUrl)}>
-                <img src={imageUrl} alt={`${name || "Product"} ${index + 1}`} />
-              </button>
-            ))}
-          </div>
-        )}
-
         <ProductDetailSection
           title="Identity"
           data={{ id, sku, slug, name, subtitle, brand, vendor, createdAt, updatedAt }}
         />
-        <ProductDetailSection title="Category" data={category} />
+        <ProductDetailSection title="Category" data={{ ...category, collections }} />
         <ProductDetailSection title="Description" data={description} />
-        <ProductDetailSection title="Media" data={media} />
+        <MediaSection media={media} onOpen={setActiveImage} />
         <ProductDetailSection title="Pricing" data={pricing} />
         <ProductDetailSection title="Inventory" data={inventory} />
-        <ProductDetailSection title="Sizes" data={{ sizes }} />
-        <ProductDetailSection title="Variants" data={{ variants }} />
+        <SizesSection sizes={sizes} variants={variants} />
         <ProductDetailSection title="Specifications" data={specifications} />
-        <ProductDetailSection title="Attributes" data={{ productAttributes, filterableAttributes, filters, badges }} />
+        <ProductDetailSection title="Product Attributes" data={productAttributes} />
+        <ProductDetailSection title="Filter Attributes" data={filterableAttributes} />
+        <ProductDetailSection title="Filters & Badges" data={{ ...filters, badges }} />
         <ProductDetailSection title="Ratings & Reviews" data={{ ratings, reviews }} />
-        <ProductDetailSection title="Metrics & Social Proof" data={{ metrics, socialProof, userState }} />
-        <ProductDetailSection title="Shipping, SEO & Compliance" data={{ shipping, careInstructions, seo, crossSell, flags, compliance }} />
+        {hasMetrics && <ProductDetailSection title="Metrics & Social Proof" data={{ metrics, socialProof }} />}
+        <ProductDetailSection title="Shipping" data={{ ...shipping, careInstructions }} />
+        <ProductDetailSection title="SEO" data={seo} />
+        <ProductDetailSection title="Cross Sell" data={crossSell} />
+        <ProductDetailSection title="Flags & Compliance" data={{ ...flags, ...compliance }} />
         {Object.keys(otherFields).length > 0 && <ProductDetailSection title="Other Fields" data={otherFields} />}
       </section>
       <ImageLightbox image={activeImage} alt={name || "Product image"} onClose={() => setActiveImage("")} />
@@ -1121,6 +1266,11 @@ function SizeRows({ sizes, setSizes }) {
                   {sizeTypes.map((type) => <option key={type} value={type}>{type}</option>)}
                 </select>
               </Field>
+              <Field label="Paper">
+                <select value={size.paper || ""} onChange={(event) => updateSize(index, "paper", event.target.value)}>
+                  {paperSizeOptions.map((paper) => <option key={paper} value={paper}>{paper || "None"}</option>)}
+                </select>
+              </Field>
               <Field label="Inches">
                 <input value={size.inches || ""} placeholder="12 x 9" onChange={(event) => updateSize(index, "inches", event.target.value)} />
               </Field>
@@ -1155,6 +1305,7 @@ function inventoryRowsFromProduct(product) {
     variantId: size.variantId || "",
     sku: size.sku || "",
     type: size.type || size.sizeType || "Small",
+    paper: size.paper || "",
     inches: size.inches || size.size || "",
     price: size.price ?? size.pricing?.price ?? "",
     stock: size.stock ?? ""
@@ -1489,6 +1640,10 @@ function orderActionsForOrder(order) {
   if (["payment_not_verified", "refunded"].includes(status)) {
     return [];
   }
+  // Orders waiting for payment are handled by the PaymentCheck panel.
+  if (status === "payment_verification") {
+    return [];
+  }
 
   return [
     { status: "product_packing", label: "Verify Payment" },
@@ -1632,6 +1787,10 @@ function OrdersManager({ orders, products, loading, onStatusChange, onOpenProduc
                   </div>
                 </div>
               </div>
+
+            {effectiveOrderStatus(order) === "payment_verification" && (
+              <PaymentCheck order={order} orders={orders} loading={loading} onDecision={onStatusChange} />
+            )}
 
             <div className="order-summary-grid">
               <div>
@@ -1800,6 +1959,8 @@ function GeneratedDetailsForm({ form, setForm, sizes, setSizes, additionalImages
         <TextField form={form} setForm={setForm} label="Collection" path="category.collection" />
       </Section>
 
+      <CollectionPicker form={form} setForm={setForm} />
+
       {form.media?.featuredImage && <img className="media-preview large-preview" src={form.media.featuredImage} alt={form.name || "Generated poster"} />}
 
       <section className="form-section">
@@ -1901,7 +2062,7 @@ function ProductReview({ form, sizes, additionalImages, onBack, onUpload, loadin
       <div className="review-sizes">
         {sizes.map((size, index) => (
           <div key={`review-size-${index}`}>
-            <strong>{size.type}</strong>
+            <strong>{size.type}{size.paper ? ` · ${size.paper}` : ""}</strong>
             <span>{size.inches}</span>
             <span>INR {size.price}</span>
           </div>
@@ -1971,7 +2132,7 @@ function ReadOnlyDetails({ payload }) {
         <div className="review-sizes">
           {payload.sizes.map((size) => (
             <div key={size.id}>
-              <strong>{size.type}</strong>
+              <strong>{size.type}{size.paper ? ` · ${size.paper}` : ""}</strong>
               <span>{size.inches}</span>
               <span>INR {size.price}</span>
               <span>{size.sku}</span>
@@ -2028,22 +2189,39 @@ function ReadOnlyDetails({ payload }) {
   );
 }
 
-function App() {
-  const [page, setPage] = useState("upload");
+// The current page lives in the URL hash (#/inventory, #/products/<id>, #/edit/<id>)
+// so a refresh, a bookmark or the browser's back button lands on the same screen.
+const PAGES = ["upload", "bulk", "edit", "inventory", "orders", "products", "tools"];
+
+function readRoute() {
+  const [section = "", id = ""] = window.location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
+  if (section === "products" && id) return { page: "productDetail", id };
+  if (PAGES.includes(section)) return { page: section, id: section === "edit" ? id : "" };
+  return { page: "upload", id: "" };
+}
+
+function routeHash(page, id) {
+  if (page === "productDetail") return id ? `#/products/${encodeURIComponent(id)}` : "#/products";
+  if (page === "edit" && id) return `#/edit/${encodeURIComponent(id)}`;
+  return `#/${page}`;
+}
+
+function ConsoleApp({ adminSession, onLogout }) {
+  const [page, setPage] = useState(() => readRoute().page);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [form, setForm] = useState(() => cloneTemplate());
   const [images, setImages] = useState([]);
   const [imagePreview, setImagePreview] = useState("");
   const [uploadStep, setUploadStep] = useState("image");
-  const [sizes, setSizes] = useState([{ type: "Small", inches: "", price: "" }]);
+  const [sizes, setSizes] = useState(standardSizes);
   const [additionalImages, setAdditionalImages] = useState([]);
   const [editAdditionalImages, setEditAdditionalImages] = useState([]);
-  const [editingId, setEditingId] = useState("");
+  const [editingId, setEditingId] = useState(() => (readRoute().page === "edit" ? readRoute().id : ""));
   const [inventoryDrafts, setInventoryDrafts] = useState({});
   const [expandedInventoryIds, setExpandedInventoryIds] = useState([]);
   const [inventorySort, setInventorySort] = useState("name");
-  const [selectedProductId, setSelectedProductId] = useState("");
+  const [selectedProductId, setSelectedProductId] = useState(() => (readRoute().page === "productDetail" ? readRoute().id : ""));
   const [selectedProductFallback, setSelectedProductFallback] = useState(null);
   const [previousProductPage, setPreviousProductPage] = useState("products");
   const [loading, setLoading] = useState(false);
@@ -2063,6 +2241,33 @@ function App() {
     () => products.find((product) => product.id === selectedProductId) || selectedProductFallback,
     [products, selectedProductId, selectedProductFallback]
   );
+
+  // Page -> URL. A new history entry per page, so Back returns to the previous screen.
+  const routeId = page === "productDetail" ? selectedProductId : page === "edit" ? editingId : "";
+  useEffect(() => {
+    const hash = routeHash(page, routeId);
+    if (!window.location.hash) {
+      window.history.replaceState(null, "", hash);
+    } else if (window.location.hash !== hash) {
+      window.history.pushState(null, "", hash);
+    }
+  }, [page, routeId]);
+
+  // URL -> page, for the browser's back/forward buttons and edited addresses.
+  useEffect(() => {
+    function syncFromUrl() {
+      const route = readRoute();
+      setPage(route.page);
+      if (route.page === "productDetail") setSelectedProductId(route.id);
+      if (route.page === "edit") setEditingId(route.id);
+    }
+    window.addEventListener("popstate", syncFromUrl);
+    window.addEventListener("hashchange", syncFromUrl);
+    return () => {
+      window.removeEventListener("popstate", syncFromUrl);
+      window.removeEventListener("hashchange", syncFromUrl);
+    };
+  }, []);
 
   async function refreshProducts() {
     setLoading(true);
@@ -2175,7 +2380,7 @@ function App() {
     setImages([]);
     setImagePreview("");
     setUploadStep("image");
-    setSizes([{ type: "Small", inches: "", price: "" }]);
+    setSizes(standardSizes());
     setAdditionalImages([]);
   }
 
@@ -2195,6 +2400,24 @@ function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Saves one poster from Bulk Upload: the Gemini draft plus the sizes and mockups
+  // chosen for the whole batch.
+  async function createBulkProduct(draft, productSizes, mockupFiles) {
+    const merged = mergeAiDraft(cloneTemplate(), draft);
+    const product = {
+      ...merged,
+      id: generateProductId(merged),
+      sku: generateSku(merged),
+      createdAt: merged.createdAt || new Date().toISOString().slice(0, 10)
+    };
+    await createProduct(productPayload({ ...product, sizes: productSizes }), mockupFiles);
+  }
+
+  async function handleBulkFinished(count) {
+    setNotice(`${count} product${count === 1 ? "" : "s"} uploaded.`);
+    await refreshProducts();
   }
 
   async function handleGenerateDraft() {
@@ -2472,6 +2695,7 @@ function App() {
 
   const title = {
     upload: "Upload Product",
+    bulk: "Bulk Upload",
     edit: "Edit Product",
     inventory: "Inventory & Prices",
     orders: "Orders",
@@ -2490,6 +2714,9 @@ function App() {
         <nav className="nav">
           <button className={page === "upload" ? "active" : ""} onClick={() => { setPage("upload"); resetUpload(); }}>
             <PackagePlus size={18} /> Upload Product
+          </button>
+          <button className={page === "bulk" ? "active" : ""} onClick={() => setPage("bulk")}>
+            <Layers size={18} /> Bulk Upload
           </button>
           <button className={page === "edit" ? "active" : ""} onClick={() => setPage("edit")}>
             <Edit3 size={18} /> Edit Product
@@ -2510,6 +2737,12 @@ function App() {
         <div className="api-box">
           <span>API base</span>
           <strong>{apiRoutes.baseUrl}</strong>
+        </div>
+        <div className="session-box">
+          <span>Signed in as <strong>{adminSession.username}</strong></span>
+          <button type="button" className="secondary-button" onClick={onLogout}>
+            <LogOut size={15} /> Log out
+          </button>
         </div>
       </aside>
 
@@ -2575,6 +2808,10 @@ function App() {
               />
             )}
           </section>
+        )}
+
+        {page === "bulk" && (
+          <BulkUpload defaultSizes={standardSizes()} onCreateProduct={createBulkProduct} onFinished={handleBulkFinished} />
         )}
 
         {page === "edit" && (
@@ -2674,6 +2911,59 @@ function App() {
         )}
       </section>
     </main>
+  );
+}
+
+// Shows the login screen until there is a valid admin session.
+function App() {
+  const [session, setSession] = useState(getAdminSession);
+  const [checking, setChecking] = useState(() => Boolean(getAdminSession()));
+  const [loginNotice, setLoginNotice] = useState("");
+
+  useEffect(() => {
+    if (!session) return;
+    checkAdminSession().then((valid) => {
+      if (!valid) {
+        clearAdminSession();
+        setSession(null);
+        setLoginNotice("Your session has expired. Please log in again.");
+      }
+      setChecking(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    function handleExpired() {
+      setSession(null);
+      setLoginNotice("Your session has expired. Please log in again.");
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpired);
+  }, []);
+
+  if (checking) return null;
+
+  if (!session) {
+    return (
+      <AdminLogin
+        notice={loginNotice}
+        onLoggedIn={(nextSession) => {
+          setLoginNotice("");
+          setSession(nextSession);
+        }}
+      />
+    );
+  }
+
+  return (
+    <ConsoleApp
+      adminSession={session}
+      onLogout={() => {
+        clearAdminSession();
+        setSession(null);
+        setLoginNotice("You have been logged out.");
+      }}
+    />
   );
 }
 

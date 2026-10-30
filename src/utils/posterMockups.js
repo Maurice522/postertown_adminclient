@@ -601,6 +601,12 @@ export const mockupTypes = [
   { key: "perspective", label: "3D product shot", landscape: true }
 ];
 
+// Mockup files are named "<poster>-<key>.jpg"; returns the matching label, or "".
+export function mockupLabelFor(fileName = "") {
+  const match = mockupTypes.find((type) => String(fileName).endsWith(`-${type.key}.jpg`));
+  return match ? match.label : "";
+}
+
 export function canvasToFile(canvas, name, type = "image/jpeg", quality = 0.9) {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
