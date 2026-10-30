@@ -2811,7 +2811,7 @@ function ConsoleApp({ adminSession, onLogout }) {
         )}
 
         {page === "bulk" && (
-          <BulkUpload defaultSizes={standardSizes()} onCreateProduct={createBulkProduct} onFinished={handleBulkFinished} />
+          <BulkUpload defaultSizes={standardSizes()} products={products} onCreateProduct={createBulkProduct} onFinished={handleBulkFinished} />
         )}
 
         {page === "edit" && (

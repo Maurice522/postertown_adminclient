@@ -2726,3 +2726,43 @@ button:disabled {
     grid-column: 1 / -1;
   }
 }
+
+/* Bulk upload: duplicate detection */
+.bulk-list-actions,
+.bulk-item-actions {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.bulk-item-actions .text-button {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bulk-item.is-checking .bulk-item-status {
+  color: #607083;
+}
+
+.bulk-item.is-duplicate {
+  background: #fffaeb;
+  border-color: #f5d28c;
+}
+
+.bulk-item.is-duplicate .bulk-item-status {
+  color: #93370d;
+}
+
+.bulk-item.is-duplicate img {
+  opacity: 0.7;
+}
+
+.bulk-catalog-check {
+  align-items: center;
+  color: #607083;
+  display: flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 6px;
+  margin: 0;
+}
