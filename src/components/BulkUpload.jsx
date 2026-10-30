@@ -30,7 +30,9 @@ const STATUS_LABELS = {
   failed: "Failed"
 };
 
-const BUSY_STATUSES = ["resizing", "mockups", "details", "uploading"];
+const PARALLEL_OPTIONS = [1, 2, 3, 4, 5];
+
+const BUSY_STATUSES =["resizing", "mockups", "details", "uploading"];
 
 let nextItemId = 1;
 
@@ -55,6 +57,7 @@ export default function BulkUpload({ defaultSizes, onCreateProduct, onFinished }
   const [resize, setResize] = useState("A4");
   const [crop, setCrop] = useState("center");
   const [sizes, setSizes] = useState(() => defaultSizes.map((size) => ({ ...size, enabled: true })));
+  const [parallel, setParallel] = useState(3);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("");
   const itemsRef = useRef(items);
@@ -118,28 +121,38 @@ export default function BulkUpload({ defaultSizes, onCreateProduct, onFinished }
     patchItem(item.id, { status: "done" });
   }
 
-  // One poster at a time: Gemini's free tier rejects bursts, and the browser only has
-  // to hold one set of mockups in memory.
+  // A few posters at a time: each worker takes the next waiting poster until none are
+  // left. Kept small because every poster holds its mockups in memory and Gemini's
+  // free tier limits requests per minute.
   async function start() {
     if (!sizesValid || !pending.length) return;
     const productSizes = chosenSizes.map(({ enabled, ...size }) => size);
+    const queue = [...pending];
+    let uploaded = 0;
+    let limitReached = false;
     setRunning(true);
     setMessage("");
-    let uploaded = 0;
-    for (const item of pending) {
-      if (!itemsRef.current.some((entry) => entry.id === item.id)) continue;
-      try {
-        await processItem(item, productSizes);
-        uploaded += 1;
-      } catch (err) {
-        if (err.status === 429) {
-          patchItem(item.id, { status: "failed", error: "Gemini limit reached" });
-          setMessage("Gemini is rate limited (the free tier allows about 20 drafts a day). The rest are still waiting; press Start again later.");
-          break;
+
+    async function worker() {
+      while (queue.length && !limitReached) {
+        const item = queue.shift();
+        if (!itemsRef.current.some((entry) => entry.id === item.id)) continue;
+        try {
+          await processItem(item, productSizes);
+          uploaded += 1;
+        } catch (err) {
+          if (err.status === 429) {
+            limitReached = true;
+            patchItem(item.id, { status: "failed", error: "Gemini limit reached" });
+            setMessage("Gemini's limit is used up on every key. The rest are still waiting; press Start again later.");
+          } else {
+            patchItem(item.id, { status: "failed", error: err.message });
+          }
         }
-        patchItem(item.id, { status: "failed", error: err.message });
       }
     }
+
+    await Promise.all(Array.from({ length: Math.min(parallel, queue.length) }, worker));
     setRunning(false);
     if (uploaded) await onFinished(uploaded);
   }
@@ -155,7 +168,7 @@ export default function BulkUpload({ defaultSizes, onCreateProduct, onFinished }
 
       <p className="bulk-intro">
         Each image is resized (if you choose to), gets its mockups, has its details written by Gemini, and is uploaded
-        with the sizes and prices below. Posters are processed one after another.
+        with the sizes and prices below. Several posters are processed at the same time.
       </p>
 
       <div className="bulk-step">
@@ -253,6 +266,15 @@ export default function BulkUpload({ defaultSizes, onCreateProduct, onFinished }
         </div>
         {!sizesValid && <p className="error-text">Pick at least one size and give each chosen size a price.</p>}
       </div>
+
+      <label className="field bulk-parallel">
+        <span>Posters processed at the same time</span>
+        <select value={parallel} onChange={(event) => setParallel(Number(event.target.value))} disabled={running}>
+          {PARALLEL_OPTIONS.map((count) => (
+            <option key={count} value={count}>{count === 1 ? "1 (one after another)" : count}</option>
+          ))}
+        </select>
+      </label>
 
       {message && <div className="loading-panel">{message}</div>}
 
