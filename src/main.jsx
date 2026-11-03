@@ -15,6 +15,7 @@ import {
   Phone,
   RefreshCcw,
   Save,
+  Search,
   ShoppingBag,
   LogOut,
   Trash2,
@@ -43,6 +44,7 @@ import CollectionPicker from "./components/CollectionPicker.jsx";
 import AdminLogin from "./components/AdminLogin.jsx";
 import BulkUpload from "./components/BulkUpload.jsx";
 import { fitUploadLimit, generateMockups } from "./utils/posterMockups.js";
+import { matchesProductSearch, rebuildProductImages } from "./utils/productImages.js";
 import "./styles.css";
 
 const productTemplate = {
@@ -848,8 +850,11 @@ function ProductForm({
   );
 }
 
-function ProductCard({ product, onEdit, onDelete, onOpen }) {
+function ProductCard({ product, onEdit, onDelete, onOpen, onReplacePhoto, onRecreateMockups, imageJob }) {
   const image = product.media?.thumbnail || product.media?.featuredImage || "/placeholder.svg";
+  const busy = imageJob?.id === product.id;
+  const anyBusy = Boolean(imageJob);
+  const stop = (event) => event.stopPropagation();
   return (
     <article
       className="product-card clickable-card"
@@ -879,6 +884,32 @@ function ProductCard({ product, onEdit, onDelete, onOpen }) {
             <Trash2 size={14} /> Delete
           </button>
         </div>
+        <div className="row-actions image-actions">
+          <label className={`secondary-button${anyBusy ? " is-disabled" : ""}`} onClick={stop} title="Upload a new main photo; its mockups are rebuilt from it">
+            <ImagePlus size={14} /> Replace photo
+            <input
+              type="file"
+              accept="image/*"
+              hidden
+              disabled={anyBusy}
+              onClick={stop}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) onReplacePhoto(product, file);
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={anyBusy}
+            title="Rebuild the mockups from the current main photo"
+            onClick={(event) => { event.stopPropagation(); onRecreateMockups(product); }}>
+            <RefreshCcw size={14} className={busy ? "spin" : ""} /> Recreate mockups
+          </button>
+        </div>
+        {busy && <p className="image-job-status">{imageJob.label}</p>}
       </div>
     </article>
   );
@@ -2209,6 +2240,13 @@ function routeHash(page, id) {
 function ConsoleApp({ adminSession, onLogout }) {
   const [page, setPage] = useState(() => readRoute().page);
   const [products, setProducts] = useState([]);
+  const [productQuery, setProductQuery] = useState("");
+  // The product whose photo or mockups are being rebuilt: { id, label }.
+  const [imageJob, setImageJob] = useState(null);
+  const shownProducts = useMemo(
+    () => products.filter((product) => matchesProductSearch(product, productQuery)),
+    [products, productQuery]
+  );
   const [orders, setOrders] = useState([]);
   const [form, setForm] = useState(() => cloneTemplate());
   const [images, setImages] = useState([]);
@@ -2682,6 +2720,26 @@ function ConsoleApp({ adminSession, onLogout }) {
     setPage("edit");
   }
 
+  // Replace photo (newMainFile) or Recreate mockups (none): builds fresh mockups,
+  // swaps out the old ones, and saves only the product's images.
+  async function rebuildImages(product, newMainFile = null) {
+    const name = product.name || product.id;
+    if (!newMainFile && !window.confirm(`Replace the mockups of "${name}" with new ones?`)) return;
+    setImageJob({ id: product.id, label: newMainFile ? "Uploading the new photo and its mockups…" : "Recreating mockups…" });
+    setError("");
+    setNotice("");
+    try {
+      const { media, files, mockupCount } = await rebuildProductImages(product, newMainFile);
+      await updateProduct(product.id, { media }, files);
+      setNotice(newMainFile ? `New photo and ${mockupCount} mockups saved for "${name}".` : `${mockupCount} new mockups saved for "${name}".`);
+      await refreshProducts();
+    } catch (err) {
+      setError(`"${name}": ${err.message}`);
+    } finally {
+      setImageJob(null);
+    }
+  }
+
   function goProductDetail(product) {
     setSelectedProductId(product?.id || "");
     setSelectedProductFallback(product || null);
@@ -2898,14 +2956,35 @@ function ConsoleApp({ adminSession, onLogout }) {
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">Catalog</p>
-                <h3>{products.length} Products</h3>
+                <h3>
+                  {productQuery.trim() ? `${shownProducts.length} of ${products.length} Products` : `${products.length} Products`}
+                </h3>
               </div>
+              <label className="product-search">
+                <Search size={16} />
+                <input
+                  type="search"
+                  placeholder="Search by name, category, collection or SKU"
+                  value={productQuery}
+                  onChange={(event) => setProductQuery(event.target.value)}
+                />
+              </label>
             </div>
             <div className="product-grid">
-              {products.map((product) => (
-                <ProductCard key={product.id} product={product} onEdit={goEdit} onDelete={handleDelete} onOpen={goProductDetail} />
+              {shownProducts.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  onEdit={goEdit}
+                  onDelete={handleDelete}
+                  onOpen={goProductDetail}
+                  onReplacePhoto={rebuildImages}
+                  onRecreateMockups={(item) => rebuildImages(item)}
+                  imageJob={imageJob}
+                />
               ))}
               {!products.length && <p className="empty">No products yet.</p>}
+              {Boolean(products.length) && !shownProducts.length && <p className="empty">No products match "{productQuery}".</p>}
             </div>
           </section>
         )}

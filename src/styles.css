@@ -2766,3 +2766,65 @@ button:disabled {
   gap: 6px;
   margin: 0;
 }
+
+/* Products page: search and image actions */
+.product-search {
+  align-items: center;
+  background: #fbfcfd;
+  border: 1px solid #d9e1e8;
+  border-radius: 8px;
+  color: #607083;
+  display: flex;
+  gap: 8px;
+  max-width: 420px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.product-search:focus-within {
+  border-color: #168f85;
+}
+
+.product-search input {
+  background: transparent;
+  border: 0;
+  color: #17202b;
+  font: inherit;
+  font-size: 14px;
+  min-height: 40px;
+  outline: none;
+  width: 100%;
+}
+
+.image-actions {
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.image-actions .secondary-button {
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.secondary-button.is-disabled,
+.image-actions .secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.image-job-status {
+  color: #126a64;
+  font-size: 12px;
+  font-weight: 700;
+  margin: 8px 0 0;
+}
+
+@media (max-width: 720px) {
+  .panel-heading:has(.product-search) {
+    flex-direction: column;
+  }
+
+  .product-search {
+    max-width: none;
+  }
+}
