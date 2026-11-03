@@ -105,8 +105,12 @@ export default function ReviewsManager({ onOpenProduct }) {
                 <p>{review.comment}</p>
                 <small>
                   {formatDate(review.createdAt)}
+                  {review.orderId ? ` · Order ${review.orderId}` : ""}
                   {review.email ? ` · ${review.email}` : ""}
                 </small>
+                {review.hiddenReason === "order_returned" && (
+                  <small className="review-admin-note">Hidden automatically: the order was returned or cancelled.</small>
+                )}
                 <div className="review-admin-actions">
                   {review.status !== "approved" && (
                     <button type="button" className="primary" disabled={busyId === review.id} onClick={() => act(review, "approved")}>
