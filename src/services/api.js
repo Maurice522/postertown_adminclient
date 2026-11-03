@@ -142,6 +142,23 @@ export function deleteProduct(id) {
   });
 }
 
+export function listReviews() {
+  return request("/api/reviews");
+}
+
+export function setReviewStatus(id, status) {
+  return request(`/api/reviews/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status })
+  });
+}
+
+export function deleteReview(id) {
+  return request(`/api/reviews/${encodeURIComponent(id)}`, {
+    method: "DELETE"
+  });
+}
+
 export function listOrders() {
   return request(apiRoutes.orders);
 }

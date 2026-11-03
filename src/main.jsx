@@ -10,6 +10,7 @@ import {
   Sparkles,
   LayoutGrid,
   Mail,
+  MessageSquare,
   MapPin,
   PackagePlus,
   Phone,
@@ -43,6 +44,7 @@ import PaymentCheck from "./components/PaymentCheck.jsx";
 import CollectionPicker from "./components/CollectionPicker.jsx";
 import AdminLogin from "./components/AdminLogin.jsx";
 import BulkUpload from "./components/BulkUpload.jsx";
+import ReviewsManager from "./components/ReviewsManager.jsx";
 import { fitUploadLimit, generateMockups } from "./utils/posterMockups.js";
 import { matchesProductSearch, rebuildProductImages } from "./utils/productImages.js";
 import "./styles.css";
@@ -1860,6 +1862,21 @@ function OrdersManager({ orders, products, loading, onStatusChange, onOpenProduc
 
               <section className="order-detail-box">
                 <h5>Totals</h5>
+                {order.totalsMismatch && (
+                  <p className="totals-warning">
+                    The customer saw INR {Number(order.totals?.customerSawTotal || 0).toLocaleString("en-IN")} at checkout
+                    (a price changed or the cart was edited). Check the amount actually paid.
+                  </p>
+                )}
+                {order.totals?.productsTotal > 0 && (
+                  <p><strong>Posters:</strong> INR {Number(order.totals.productsTotal).toLocaleString("en-IN")}</p>
+                )}
+                {order.totals?.bundleDiscount > 0 && (
+                  <p><strong>A4 bundle:</strong> − INR {Number(order.totals.bundleDiscount).toLocaleString("en-IN")}</p>
+                )}
+                {order.totals?.couponDiscount > 0 && (
+                  <p><strong>Coupon {order.totals.couponCode}:</strong> − INR {Number(order.totals.couponDiscount).toLocaleString("en-IN")}</p>
+                )}
                 <p><strong>Subtotal:</strong> INR {Number(order.totals?.subtotal || 0).toLocaleString("en-IN")}</p>
                 <p><strong>GST:</strong> INR {Number(order.totals?.gst || 0).toLocaleString("en-IN")}</p>
                 <p><strong>Shipping:</strong> INR {Number(order.totals?.shipping || 0).toLocaleString("en-IN")}</p>
@@ -2222,7 +2239,7 @@ function ReadOnlyDetails({ payload }) {
 
 // The current page lives in the URL hash (#/inventory, #/products/<id>, #/edit/<id>)
 // so a refresh, a bookmark or the browser's back button lands on the same screen.
-const PAGES = ["upload", "bulk", "edit", "inventory", "orders", "products", "tools"];
+const PAGES = ["upload", "bulk", "edit", "inventory", "orders", "reviews", "products", "tools"];
 
 function readRoute() {
   const [section = "", id = ""] = window.location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
@@ -2239,6 +2256,8 @@ function routeHash(page, id) {
 
 function ConsoleApp({ adminSession, onLogout }) {
   const [page, setPage] = useState(() => readRoute().page);
+  // Bumped by the Refresh button to reload the reviews page.
+  const [reviewsKey, setReviewsKey] = useState(0);
   const [products, setProducts] = useState([]);
   const [productQuery, setProductQuery] = useState("");
   // The product whose photo or mockups are being rebuilt: { id, label }.
@@ -2334,6 +2353,10 @@ function ConsoleApp({ adminSession, onLogout }) {
   async function refreshCurrentPage() {
     if (page === "orders") {
       await refreshOrders();
+      return;
+    }
+    if (page === "reviews") {
+      setReviewsKey((key) => key + 1);
       return;
     }
     await refreshProducts();
@@ -2757,6 +2780,7 @@ function ConsoleApp({ adminSession, onLogout }) {
     edit: "Edit Product",
     inventory: "Inventory & Prices",
     orders: "Orders",
+    reviews: "Reviews",
     products: "All Products",
     tools: "Image Tools",
     productDetail: selectedProduct?.name || "Product Detail"
@@ -2784,6 +2808,9 @@ function ConsoleApp({ adminSession, onLogout }) {
           </button>
           <button className={page === "orders" ? "active" : ""} onClick={() => setPage("orders")}>
             <ShoppingBag size={18} /> Orders
+          </button>
+          <button className={page === "reviews" ? "active" : ""} onClick={() => setPage("reviews")}>
+            <MessageSquare size={18} /> Reviews
           </button>
           <button className={page === "products" || page === "productDetail" ? "active" : ""} onClick={() => setPage("products")}>
             <LayoutGrid size={18} /> All Products
@@ -2937,6 +2964,13 @@ function ConsoleApp({ adminSession, onLogout }) {
             loading={loading}
             onStatusChange={handleOrderStatusChange}
             onOpenProduct={goProductDetail}
+          />
+        )}
+
+        {page === "reviews" && (
+          <ReviewsManager
+            key={reviewsKey}
+            onOpenProduct={(id) => goProductDetail(products.find((product) => product.id === id) || { id })}
           />
         )}
 
