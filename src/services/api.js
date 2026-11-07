@@ -176,3 +176,31 @@ export function updateOrder(id, order) {
     body: JSON.stringify(order)
   });
 }
+
+// Customers (admin user management).
+export function listCustomers() {
+  return request("/api/admin/users");
+}
+
+export function getCustomer(id) {
+  return request(`/api/admin/users/${encodeURIComponent(id)}`);
+}
+
+export function setCustomerStatus(id, status) {
+  return request(`/api/admin/users/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status })
+  });
+}
+
+export function getEmailOptions() {
+  return request("/api/admin/users/email-options");
+}
+
+// preview: true returns { subject, html, text } without sending.
+export function emailCustomer(id, email) {
+  return request(`/api/admin/users/${encodeURIComponent(id)}/email`, {
+    method: "POST",
+    body: JSON.stringify(email)
+  });
+}

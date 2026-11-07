@@ -21,6 +21,7 @@ import {
   LogOut,
   Trash2,
   Upload,
+  Users,
   X,
   ZoomIn
 } from "lucide-react";
@@ -45,6 +46,7 @@ import CollectionPicker from "./components/CollectionPicker.jsx";
 import AdminLogin from "./components/AdminLogin.jsx";
 import BulkUpload from "./components/BulkUpload.jsx";
 import ReviewsManager from "./components/ReviewsManager.jsx";
+import UsersManager from "./components/UsersManager.jsx";
 import { fitUploadLimit, generateMockups } from "./utils/posterMockups.js";
 import { matchesProductSearch, rebuildProductImages } from "./utils/productImages.js";
 import "./styles.css";
@@ -2239,7 +2241,7 @@ function ReadOnlyDetails({ payload }) {
 
 // The current page lives in the URL hash (#/inventory, #/products/<id>, #/edit/<id>)
 // so a refresh, a bookmark or the browser's back button lands on the same screen.
-const PAGES = ["upload", "bulk", "edit", "inventory", "orders", "reviews", "products", "tools"];
+const PAGES = ["upload", "bulk", "edit", "inventory", "orders", "users", "reviews", "products", "tools"];
 
 function readRoute() {
   const [section = "", id = ""] = window.location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
@@ -2355,7 +2357,7 @@ function ConsoleApp({ adminSession, onLogout }) {
       await refreshOrders();
       return;
     }
-    if (page === "reviews") {
+    if (page === "reviews" || page === "users") {
       setReviewsKey((key) => key + 1);
       return;
     }
@@ -2780,6 +2782,7 @@ function ConsoleApp({ adminSession, onLogout }) {
     edit: "Edit Product",
     inventory: "Inventory & Prices",
     orders: "Orders",
+    users: "Customers",
     reviews: "Reviews",
     products: "All Products",
     tools: "Image Tools",
@@ -2811,6 +2814,9 @@ function ConsoleApp({ adminSession, onLogout }) {
           </button>
           <button className={page === "reviews" ? "active" : ""} onClick={() => setPage("reviews")}>
             <MessageSquare size={18} /> Reviews
+          </button>
+          <button className={page === "users" ? "active" : ""} onClick={() => setPage("users")}>
+            <Users size={18} /> Customers
           </button>
           <button className={page === "products" || page === "productDetail" ? "active" : ""} onClick={() => setPage("products")}>
             <LayoutGrid size={18} /> All Products
@@ -2964,6 +2970,13 @@ function ConsoleApp({ adminSession, onLogout }) {
             loading={loading}
             onStatusChange={handleOrderStatusChange}
             onOpenProduct={goProductDetail}
+          />
+        )}
+
+        {page === "users" && (
+          <UsersManager
+            key={reviewsKey}
+            onOpenProduct={(id) => goProductDetail(products.find((product) => product.id === id) || { id })}
           />
         )}
 

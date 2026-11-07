@@ -2942,3 +2942,383 @@ button:disabled {
 .review-admin-note {
   color: #b54708 !important;
 }
+
+/* Customers page, email composer and review filters */
+.admin-stats {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-bottom: 14px;
+}
+
+.admin-stat {
+  background: #f7f9fb;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+}
+
+.admin-stat span {
+  color: #667484;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-stat strong {
+  align-items: center;
+  display: flex;
+  font-size: 20px;
+  gap: 6px;
+}
+
+.users-admin .muted-value,
+.composer .muted-value {
+  color: #667484;
+  font-weight: 500;
+}
+
+.users-table-wrap {
+  overflow-x: auto;
+}
+
+.users-table {
+  border-collapse: collapse;
+  min-width: 720px;
+  width: 100%;
+}
+
+.users-table th {
+  border-bottom: 1px solid #dfe5eb;
+  color: #667484;
+  font-size: 12px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.users-table td {
+  border-bottom: 1px solid #eef2f6;
+  padding: 10px;
+  vertical-align: top;
+}
+
+.users-table td small {
+  color: #667484;
+  display: block;
+  font-size: 12px;
+}
+
+.users-table tbody tr {
+  cursor: pointer;
+}
+
+.users-table tbody tr:hover,
+.users-table tbody tr:focus {
+  background: #f3f8f8;
+  outline: none;
+}
+
+.user-badge {
+  background: #eef2f6;
+  border-radius: 999px;
+  color: #243343;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  margin-left: 6px;
+  padding: 1px 8px;
+  text-transform: capitalize;
+}
+
+.user-badge.warn {
+  background: #fff4e0;
+  color: #9a5b00;
+  margin-left: 0;
+}
+
+.user-badge.danger,
+.user-badge.status-cancelled,
+.user-badge.status-payment_not_verified,
+.user-badge.status-rejected {
+  background: #fff0ee;
+  color: #b42318;
+}
+
+.user-badge.status-completed,
+.user-badge.status-approved,
+.user-badge.status-refunded {
+  background: #eaf7ee;
+  color: #226b37;
+}
+
+.user-badge.status-pending,
+.user-badge.status-return_requested,
+.user-badge.status-cancel_requested {
+  background: #fff4e0;
+  color: #9a5b00;
+}
+
+.user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.user-actions .primary-button {
+  width: auto;
+}
+
+.user-detail-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  margin-bottom: 12px;
+}
+
+.user-card {
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  padding: 14px;
+}
+
+.user-detail-grid .user-card {
+  margin-bottom: 0;
+}
+
+.user-card h4 {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.user-card-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.user-card-head h4 {
+  margin: 0;
+}
+
+.user-items,
+.user-log {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.user-items li {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 40px minmax(0, 1fr) auto auto;
+}
+
+.user-items img {
+  border-radius: 6px;
+  height: 40px;
+  object-fit: cover;
+  width: 40px;
+}
+
+.user-log li small {
+  display: block;
+}
+
+.user-address {
+  line-height: 1.55;
+  margin: 0 0 8px;
+}
+
+.user-order {
+  border-top: 1px solid #eef2f6;
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.user-order:first-of-type {
+  border-top: 0;
+}
+
+.user-order-top {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.user-order-top .user-badge {
+  margin-left: 0;
+}
+
+.user-order-top strong:last-child {
+  margin-left: auto;
+}
+
+.user-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.user-review {
+  border-top: 1px solid #eef2f6;
+  padding: 8px 0;
+}
+
+.user-review strong {
+  color: #e0a526;
+}
+
+.user-review p {
+  margin: 4px 0 0;
+}
+
+.composer-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 32, 0.45);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 20px;
+  position: fixed;
+  z-index: 50;
+}
+
+.composer {
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 24px 60px rgba(15, 23, 32, 0.3);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 40px);
+  max-width: 1180px;
+  width: 100%;
+}
+
+.composer-head {
+  align-items: start;
+  border-bottom: 1px solid #dfe5eb;
+  display: flex;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+
+.composer-head h3 {
+  margin: 0;
+}
+
+.composer-body {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px;
+}
+
+.composer-form {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.composer-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.composer-types button {
+  background: #eef2f6;
+  border: 1px solid #d9e1e8;
+  border-radius: 999px;
+  color: #243343;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 12px;
+}
+
+.composer-types button.active {
+  background: #14877f;
+  border-color: #14877f;
+  color: #ffffff;
+}
+
+.composer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.composer-actions .primary-button {
+  width: auto;
+}
+
+.composer-preview {
+  background: #eef2f6;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 520px;
+  overflow: hidden;
+}
+
+.composer-preview .empty {
+  margin: auto;
+  padding: 20px;
+  text-align: center;
+}
+
+.composer-preview-subject {
+  background: #ffffff;
+  border-bottom: 1px solid #dfe5eb;
+  font-weight: 700;
+  padding: 10px 14px;
+}
+
+.composer-preview-subject span {
+  color: #667484;
+  font-size: 12px;
+  margin-right: 6px;
+}
+
+.composer-preview iframe {
+  border: 0;
+  flex: 1;
+  min-height: 520px;
+  width: 100%;
+}
+
+.review-filters {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.review-filters .field {
+  min-width: 170px;
+}
+
+.review-photo-toggle {
+  align-items: center;
+  display: flex;
+  font-weight: 700;
+  gap: 6px;
+  min-height: 42px;
+}
+
+@media (max-width: 860px) {
+  .composer-body {
+    grid-template-columns: 1fr;
+  }
+}
